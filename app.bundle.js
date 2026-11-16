@@ -69,6 +69,13 @@
     (document.head || document.documentElement).appendChild(st);
   })();
 
+  (function() {
+    var st = document.createElement("style");
+    st.id = "zp-style3";
+    st.textContent = ".upd{display:flex;align-items:center;justify-content:center;background:rgba(3,8,7,.92)}.upd-card{width:1100px;box-sizing:border-box;padding:56px 64px;border-radius:40px;background:#0d1a17;border:1px solid var(--glass-line)}.upd-title{font:700 56px/1.1 var(--display);margin-bottom:22px}.upd-body{font:500 32px/1.4 var(--body);color:var(--mist)}.upd-notes{font:500 26px/1.45 var(--body);color:var(--dim);margin-top:16px;white-space:pre-line;max-height:240px;overflow:hidden}.upd-bar{display:none;height:22px;border-radius:12px;background:rgba(234,243,239,.12);margin-top:34px;overflow:hidden}.upd-bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s linear}.upd-pct{font:600 26px var(--body);color:var(--dim);margin-top:14px;min-height:34px}.upd-btns{display:flex;gap:28px;margin-top:36px}.upd-btn{min-width:300px;text-align:center;padding:22px 34px;border-radius:22px;background:rgba(234,243,239,.1);font:700 32px var(--body)}.upd-btn.focus{background:var(--accent);color:#06130F}.lb-row{contain:layout paint}";
+    (document.head || document.documentElement).appendChild(st);
+  })();
+
   // app/js/polyfills.js
   if (!String.prototype.padStart) {
     String.prototype.padStart = function(n, s) {
@@ -107,7 +114,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.1";
+  var VERSION = "1.3.2";
 
   // app/js/router.js
   var router_exports = {};
@@ -7914,25 +7921,208 @@
     }
   }
   var otaBusy = false;
-  function otaCheck(upd) {
+  var otaPromptOpen = false;
+  var otaManual = false;
+  var otaAsked = {};
+  function otaDownload(upd, onProgress, signal) {
     return __async(this, null, function* () {
-      if (!upd || !upd.version || !upd.url || !upd.sig || otaBusy) return;
-      if (!verGt(upd.version, VERSION)) return;
-      const cur = otaStored();
-      if (cur && cur.native === NATIVE_VERSION && !verGt(upd.version, cur.version)) return;
+      const proxy = proxyBase();
+      const u = upd.url + (upd.url.indexOf("?") < 0 ? "?" : "&") + "t=" + Date.now();
+      const target = proxy ? proxy + "/proxy?url=" + encodeURIComponent(u) : u;
+      const res = yield fetch(target, { signal });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      let bytes;
+      if (res.body && res.body.getReader && typeof TextDecoder !== "undefined") {
+        const total = Number(res.headers.get("content-length")) || Number(upd.size) || 0;
+        const rd = res.body.getReader();
+        const parts = [];
+        let got = 0;
+        for (; ; ) {
+          const r = yield rd.read();
+          if (r.done) break;
+          parts.push(r.value);
+          got += r.value.length;
+          onProgress(got, total);
+        }
+        bytes = new Uint8Array(got);
+        let o = 0;
+        parts.forEach((x) => {
+          bytes.set(x, o);
+          o += x.length;
+        });
+      } else {
+        bytes = new Uint8Array(yield res.arrayBuffer());
+        onProgress(bytes.length, bytes.length);
+      }
+      if (!NACL.sign.detached.verify(bytes, b64bytes(upd.sig), b64bytes(OTA_PUB))) throw new Error("bad signature");
+      const code = new TextDecoder("utf-8").decode(bytes);
+      const m = code.match(/var VERSION = "([^"]+)"/);
+      if (!m || m[1] !== upd.version) throw new Error("wrong version");
+      return code;
+    });
+  }
+  function otaPrompt(upd, ready) {
+    if (otaPromptOpen) return;
+    const t0 = top();
+    if (!t0 || /play/i.test(t0.name || "")) {
+      setTimeout(() => otaPrompt(upd, ready), 45e3);
+      return;
+    }
+    otaPromptOpen = true;
+    const el3 = h("div", "screen upd");
+    const card = h("div", "upd-card", el3);
+    const title = h("div", "upd-title", card);
+    const body = h("div", "upd-body", card);
+    const notes = h("div", "upd-notes", card);
+    const barWrap = h("div", "upd-bar", card);
+    const barFill = h("i", "", barWrap);
+    const pct = h("div", "upd-pct", card);
+    const btns = h("div", "upd-btns", card);
+    const bYes = h("div", "upd-btn", btns);
+    const bNo = h("div", "upd-btn", btns);
+    let sel = 0;
+    let state = ready ? "ready" : "ask";
+    let ctl = null;
+    function paint() {
+      const dl = state === "load";
+      if (state === "ask") {
+        title.textContent = "Update available";
+        body.textContent = "Zen Pro " + upd.version + " is ready to download (you have " + VERSION + ").";
+        notes.textContent = upd.notes ? String(upd.notes) : "";
+        bYes.textContent = "Update now";
+        bNo.textContent = "Later";
+      } else if (state === "load") {
+        title.textContent = "Downloading update\u2026";
+        bYes.textContent = "";
+        bNo.textContent = "Cancel";
+      } else if (state === "ready") {
+        title.textContent = "Update ready";
+        body.textContent = "Version " + upd.version + " has been downloaded. Restart Zen Pro to use it.";
+        notes.textContent = upd.notes ? String(upd.notes) : "";
+        bYes.textContent = "Restart now";
+        bNo.textContent = "Later";
+        barWrap.style.display = "none";
+        pct.textContent = "";
+      } else {
+        title.textContent = "Update failed";
+        body.textContent = "The update could not be downloaded or verified. Your current version keeps working.";
+        notes.textContent = "";
+        bYes.textContent = "Try again";
+        bNo.textContent = "Close";
+        barWrap.style.display = "none";
+        pct.textContent = "";
+      }
+      barWrap.style.display = dl ? "block" : "none";
+      bYes.style.display = bYes.textContent ? "" : "none";
+      if (dl) sel = 1;
+      toggleClass(bYes, "focus", sel === 0 && bYes.textContent !== "");
+      toggleClass(bNo, "focus", sel === 1 || bYes.textContent === "");
+    }
+    function close(later) {
+      if (later) set("otaDeclined", upd.version);
+      otaPromptOpen = false;
+      if (top() === scr) back();
+    }
+    function start() {
+      state = "load";
+      body.textContent = "Zen Pro " + upd.version;
+      notes.textContent = "";
+      barFill.style.width = "0%";
+      pct.textContent = "0%";
+      paint();
       otaBusy = true;
-      try {
-        const code = yield getText(upd.url + (upd.url.indexOf("?") < 0 ? "?" : "&") + "t=" + Date.now(), 6e4);
-        if (!NACL.sign.detached.verify(utf8bytes(code), b64bytes(upd.sig), b64bytes(OTA_PUB))) return;
-        const m = code.match(/var VERSION = "([^"]+)"/);
-        if (!m || m[1] !== upd.version) return;
+      ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      otaDownload(upd, (got, total) => {
+        if (total > 0) {
+          const v = Math.min(99, Math.floor(got * 100 / total));
+          barFill.style.width = v + "%";
+          pct.textContent = v + "%  \xB7  " + (got / 1048576).toFixed(1) + " / " + (total / 1048576).toFixed(1) + " MB";
+        } else {
+          barFill.style.width = "60%";
+          pct.textContent = (got / 1048576).toFixed(1) + " MB";
+        }
+      }, ctl ? ctl.signal : void 0).then((code) => {
         localStorage.setItem("zp.ota", JSON.stringify({ version: upd.version, native: NATIVE_VERSION, tries: 0, code }));
         set("otaReady", upd.version);
-        toast("Update " + upd.version + " downloaded. It applies the next time you open the app.", 8e3);
-      } catch (e) {
-      } finally {
+        set("otaDeclined", void 0);
         otaBusy = false;
+        barFill.style.width = "100%";
+        state = "ready";
+        sel = 0;
+        paint();
+      }, () => {
+        otaBusy = false;
+        if (state !== "load") return;
+        state = "fail";
+        sel = 0;
+        paint();
+      });
+    }
+    const scr = {
+      el: el3,
+      name: "update",
+      onKey(action) {
+        if (action === "left" || action === "right") {
+          if (state !== "load" && bYes.textContent) {
+            sel = action === "left" ? 0 : 1;
+            paint();
+          }
+          return true;
+        }
+        if (action === "enter") {
+          if (state === "load" || sel === 1) {
+            if (state === "load") {
+              state = "fail";
+              try {
+                if (ctl) ctl.abort();
+              } catch (e) {
+              }
+              otaBusy = false;
+              close(false);
+            } else close(state === "ask");
+          } else if (state === "ask" || state === "fail") start();
+          else if (state === "ready") location.reload();
+          return true;
+        }
+        if (action === "back") {
+          if (state === "load") {
+            state = "fail";
+            try {
+              if (ctl) ctl.abort();
+            } catch (e) {
+            }
+            otaBusy = false;
+          }
+          close(state === "ask");
+          return true;
+        }
+        return true;
+      },
+      destroy() {
+        otaPromptOpen = false;
       }
+    };
+    paint();
+    push(scr);
+  }
+  function otaCheck(upd) {
+    return __async(this, null, function* () {
+      if (!upd || !upd.version || !upd.url || !upd.sig || otaBusy || otaPromptOpen) return;
+      if (!verGt(upd.version, VERSION)) return;
+      const cur = otaStored();
+      if (cur && cur.native === NATIVE_VERSION && cur.version === upd.version) {
+        if (!otaAsked["r" + upd.version]) {
+          otaAsked["r" + upd.version] = 1;
+          otaPrompt(upd, true);
+        }
+        return;
+      }
+      if (cur && cur.native === NATIVE_VERSION && !verGt(upd.version, cur.version)) return;
+      set("otaPending", { version: upd.version, url: upd.url, sig: upd.sig, notes: upd.notes || "", size: upd.size || 0 });
+      if (!otaManual && get("otaDeclined") === upd.version) return;
+      if (!otaManual && otaAsked[upd.version]) return;
+      otaAsked[upd.version] = 1;
+      otaPrompt(upd, false);
     });
   }
   // The new code started fine: forget the failed-start counter.
@@ -7957,9 +8147,29 @@
     if (!seen || seen.version !== String(a.version)) setTimeout(() => toast("New version " + a.version + " is available. See Settings > Update.", 9e3), 3e3);
   }
   function updateItems() {
+    const pend = get("otaPending");
+    const rows = [];
+    if (pend && verGt(pend.version, VERSION)) {
+      rows.push({ label: "App update", value: "Version " + pend.version + " available", action: "Install", run: () => {
+        otaManual = true;
+        otaPrompt(pend, false);
+        otaManual = false;
+      } });
+    }
+    rows.push({ label: "Check for updates", value: "Zen Pro " + VERSION, action: "Check", run: () => {
+      toast("Checking\u2026");
+      otaManual = true;
+      policyRefresh().then(() => {
+        if (!otaPromptOpen) toast("You have the latest version");
+        otaManual = false;
+      }, () => {
+        otaManual = false;
+        toast("Can't reach the update server");
+      });
+    } });
     const u = get("apkUpdate");
-    if (!u) return [];
-    return [{ label: "Update available", value: u.version + (u.url ? "  \xB7  " + u.url : ""), run: () => toast((u.notes ? u.notes + "  " : "") + (u.url || "Ask your provider for the new version."), 12e3) }];
+    if (!u) return rows;
+    return rows.concat([{ label: "New app file (APK)", value: u.version + (u.url ? "  \xB7  " + u.url : ""), run: () => toast((u.notes ? u.notes + "  " : "") + (u.url || "Ask your provider for the new version."), 12e3) }]);
   }
 
   // PIN: short code derived from the private device key. The provider types it together with the Device ID,
@@ -8271,6 +8481,56 @@
     const i = list.findIndex((x) => x[key] === current);
     return list[(i + 1) % list.length][key] === void 0 ? fallback : list[(i + 1) % list.length][key];
   }
+  var VPN_PKG = "io.privado.android";
+  function vpnInstalled() {
+    try {
+      return !!(window.ZenPlayer && window.ZenPlayer.hasPackage && window.ZenPlayer.hasPackage(VPN_PKG));
+    } catch (e) {
+      return false;
+    }
+  }
+  function VpnScreen() {
+    const el3 = h("div", "screen settings");
+    h("h1", "settings-title", el3).textContent = "VPN";
+    const view = h("div", "settings-view", el3);
+    const list = h("div", "settings-list", view);
+    const canCheck = !!(window.ZenPlayer && window.ZenPlayer.hasPackage);
+    const rows = [
+      { label: "PrivadoVPN app", value: canCheck ? vpnInstalled() ? "Installed" : "Not installed on this device" : "Install it on your device or computer" },
+      { label: "Step 1", value: "Open PrivadoVPN and sign in with your subscription" },
+      { label: "Step 2", value: "Choose a country and press Connect" },
+      { label: "Step 3", value: "Come back to Zen Pro. Channels and movies now go through the VPN" },
+      { label: "Download", value: "privadovpn.com/software" },
+      { label: "Why not inside Zen Pro?", value: "A VPN needs its own system permission and engine. Use the provider's app." }
+    ];
+    let index = 0;
+    rows.forEach((it) => {
+      it.el = h("div", "setting", list);
+      h("span", "setting-label", it.el).textContent = it.label;
+      h("span", "setting-value", it.el).textContent = it.value;
+    });
+    function render() {
+      rows.forEach((it, i) => toggleClass(it.el, "focus", i === index));
+    }
+    render();
+    return {
+      el: el3,
+      name: "vpn",
+      onKey(action) {
+        if (action === "up") index = Math.max(0, index - 1);
+        else if (action === "down") index = Math.min(rows.length - 1, index + 1);
+        else if (action === "back") {
+          back();
+          return true;
+        } else if (action === "enter") {
+          toast(rows[index].value, 6e3);
+          return true;
+        } else return false;
+        render();
+        return true;
+      }
+    };
+  }
   function SettingsScreen() {
     const el3 = h("div", "screen settings");
     const ambience = useAmbience();
@@ -8308,6 +8568,7 @@
           toast("Player: " + engineLabel(nx) + (EXT_PLAYERS[nx] ? ". The stream opens in that app; the built-in channel list is not shown." : ". Applies to the next video."), 6e3);
           build();
         }, action: "Change" }] : [],
+        { label: "VPN", value: "Use PrivadoVPN with Zen Pro", run: () => push(VpnScreen()), action: "Open" },
         ...updateItems(),
         ...get("act") && get("act").support ? [{ label: "Support", value: get("act").support, run: () => toast(get("act").support, 6e3) }] : [],
         // More buffer = fewer stutters on a slow or uneven connection, at the cost of a longer start.
@@ -8678,48 +8939,87 @@
       };
       img.src = item.logo || item.thumb || "";
     }
+    const catPool = [];
+    const chPool = [];
     function paintCats() {
-      catsBox.innerHTML = "";
       const start2 = Math.max(0, Math.min(ci - 4, cats.length - CAT_ROWS));
-      for (let i = start2; i < Math.min(cats.length, start2 + CAT_ROWS); i++) {
+      for (let k = 0; k < CAT_ROWS; k++) {
+        const i = start2 + k;
+        let r = catPool[k];
+        if (i >= cats.length) {
+          if (r) r.row.style.display = "none";
+          continue;
+        }
+        if (!r) {
+          const row = h("div", "lb-row lb-crow", catsBox);
+          const t = h("div", "lb-ct", row);
+          r = { row, cn: h("div", "lb-cn", t), cc: h("div", "lb-cc", t), i: -1, c: null };
+          row.addEventListener("mouseenter", () => {
+            const j = r.i;
+            if (ci === j && zone === "cats") return;
+            ci = j;
+            zone = "cats";
+            stopPreview();
+            selectCat();
+          });
+          catPool[k] = r;
+        }
         const c = cats[i];
-        const row = h("div", "lb-row lb-crow" + (i === ci ? zone === "cats" ? " focus" : " sel" : ""), catsBox);
-        const t = h("div", "lb-ct", row);
-        h("div", "lb-cn", t).textContent = c.title;
-        h("div", "lb-cc", t).textContent = c.locked ? "Locked" : c.count != null ? "Total: " + c.count : "";
-        row.addEventListener("mouseenter", () => {
-          if (ci === i && zone === "cats") return;
-          ci = i;
-          zone = "cats";
-          stopPreview();
-          selectCat();
-        });
+        if (r.row.style.display) r.row.style.display = "";
+        if (r.c !== c || r.i !== i) {
+          r.c = c;
+          r.i = i;
+          r.cn.textContent = c.title;
+          r.cc.textContent = c.locked ? "Locked" : c.count != null ? "Total: " + c.count : "";
+        }
+        const cls2 = "lb-row lb-crow" + (i === ci ? zone === "cats" ? " focus" : " sel" : "");
+        if (r.row.className !== cls2) r.row.className = cls2;
       }
       setText(sub, cats[ci] ? cats[ci].title : "");
     }
     function paintChans() {
-      chsBox.innerHTML = "";
       if (!chans.length) {
+        chsBox.innerHTML = "";
+        chPool.length = 0;
         h("div", "lb-empty", chsBox).textContent = loadId ? "Loading\u2026" : "No channels";
         setText(chsPos, "");
         return;
       }
+      if (!chPool.length) chsBox.innerHTML = "";
       const start2 = Math.max(0, Math.min(hi - 4, chans.length - CH_ROWS));
-      for (let i = start2; i < Math.min(chans.length, start2 + CH_ROWS); i++) {
+      for (let k = 0; k < CH_ROWS; k++) {
+        const i = start2 + k;
+        let r = chPool[k];
+        if (i >= chans.length) {
+          if (r) r.row.style.display = "none";
+          continue;
+        }
+        if (!r) {
+          const row = h("div", "lb-row lb-hrow", chsBox);
+          r = { row, img: h("img", "lb-rlogo", row), nm: h("div", "lb-rname", row), nu: h("div", "lb-rnum", row), i: -1, c: null };
+          row.addEventListener("mouseenter", () => {
+            const j = r.i;
+            if (hi === j && zone === "chs") return;
+            hi = j;
+            zone = "chs";
+            paintChans();
+            paintInfo();
+            paintCats();
+            schedulePreview();
+          });
+          chPool[k] = r;
+        }
         const c = chans[i];
-        const row = h("div", "lb-row lb-hrow" + (i === hi ? zone === "chs" ? " focus" : " sel" : ""), chsBox);
-        fitImg(h("img", "lb-rlogo", row), c);
-        h("div", "lb-rname", row).textContent = c.title;
-        h("div", "lb-rnum", row).textContent = String(i + 1);
-        row.addEventListener("mouseenter", () => {
-          if (hi === i && zone === "chs") return;
-          hi = i;
-          zone = "chs";
-          paintChans();
-          paintInfo();
-          paintCats();
-          schedulePreview();
-        });
+        if (r.row.style.display) r.row.style.display = "";
+        if (r.c !== c || r.i !== i) {
+          r.c = c;
+          r.i = i;
+          fitImg(r.img, c);
+          r.nm.textContent = c.title;
+          r.nu.textContent = String(i + 1);
+        }
+        const cls2 = "lb-row lb-hrow" + (i === hi ? zone === "chs" ? " focus" : " sel" : "");
+        if (r.row.className !== cls2) r.row.className = cls2;
       }
       setText(chsPos, hi + 1 + " / " + chans.length);
     }

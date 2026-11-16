@@ -7,8 +7,10 @@
   "support": "",
   "activationServer": "",
   "update": {
-    "version": "1.3.1",
+    "version": "1.3.2",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "juEdmh7kHGj7fwx/wfE3ScDeZ27zqJcJLOXp9MYwG9HrnSe6l0nPuFjoTG9Wl6VmBcDdyQ2w4D4LotAqrmmFBQ=="
+    "sig": "bYTH1itEbbJn1xPzL6Ih9QYbC1GhejNLPZcO2oF2xBqGLedoEMWi+aljMr6KCxNaEyFFird978R3xBi1qyPTCA==",
+    "notes": "تحسين سلاسة القوائم، نافذة تحديث بشريط تقدّم، وبند VPN في الإعدادات",
+    "size": 391026
   }
 }
