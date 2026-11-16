@@ -7,10 +7,10 @@
   "support": "",
   "activationServer": "",
   "update": {
-    "version": "1.3.3",
+    "version": "1.3.4",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "WLjsoZixMbCAiSWMSdBuXDQ8K7TKBsceakrps9B2bcWdf1jRL+fO1iPKEwgQhXirJRKsa+QKwIKdgRZbsBJ+BA==",
-    "notes": "إصلاح انقطاع الأفلام، تحميل التقييمات، وتشغيل القنوات بزر OK فقط",
-    "size": 393930
+    "sig": "XnkLuMCPENzIuHAN4eP/VZ2ZQk+bpaJ4rz0B6ehNCwH+9I/q0YZr9DsOttuRWXMq7BxmCbxPiZTr+l0LVnpXDA==",
+    "notes": "معالجة الأفلام ذات المدة الخاطئة",
+    "size": 394182
   }
 }

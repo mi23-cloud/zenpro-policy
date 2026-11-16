@@ -114,7 +114,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.3";
+  var VERSION = "1.3.4";
 
   // app/js/router.js
   var router_exports = {};
@@ -3634,10 +3634,11 @@
     function recover() {
       if (fb || !(dur > 0)) return false;
       const t = Math.max(lastT, 0);
-      if (t >= dur - 20000) return false;
+      const shortLie = dur < 6e5 && /\/(movie|series)\//.test(url2);
+      if (t >= dur - 20000 && !shortLie) return false;
       recAt = Date.now();
       stallAt = recAt;
-      if (retries < 3) {
+      if (retries < 3 && !shortLie) {
         retries++;
         try {
           toast("Reconnecting\u2026");
@@ -3662,7 +3663,7 @@
       clearInterval(poll);
       fb = videoBackend(container, listener);
       fb.open(url2, opts2);
-      fb.prepare().then(() => fb.seek(t)).then(() => fb.play()).catch(() => listener.onError("playback stopped"));
+      fb.prepare().then(() => fb.seek(Math.max(0, t - 2e3))).then(() => fb.play()).catch(() => listener.onError("playback stopped"));
       return true;
     }
     const api = {
@@ -4777,6 +4778,7 @@
       onTime(ms2) {
         if (!started) return;
         position = base + ms2;
+        if (item && item.type === "movie" && duration2 > 0 && duration2 < 6e5 && position > duration2 - 2e3) duration2 = position + 72e5;
         if (seekTarget == null) renderProgress(position);
       },
       onBuffering(on) {
