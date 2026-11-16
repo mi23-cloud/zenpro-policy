@@ -114,7 +114,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.2";
+  var VERSION = "1.3.3";
 
   // app/js/router.js
   var router_exports = {};
@@ -1241,6 +1241,46 @@
     const n = Number(v);
     return isFinite(n) ? n : 0;
   };
+  var rtState = null;
+  function ratingCache() {
+    if (rtState) return rtState;
+    let m = {};
+    try {
+      m = JSON.parse(localStorage.getItem("zp.rt") || "{}") || {};
+    } catch (e) {
+      m = {};
+    }
+    let timer5 = 0;
+    rtState = { m, save() {
+      clearTimeout(timer5);
+      timer5 = setTimeout(() => {
+        try {
+          const ks = Object.keys(m);
+          if (ks.length > 4e3) ks.slice(0, ks.length - 3e3).forEach((k) => delete m[k]);
+          localStorage.setItem("zp.rt", JSON.stringify(m));
+        } catch (e) {
+        }
+      }, 2e3);
+    } };
+    return rtState;
+  }
+  var rtActive = 0, rtWait = [];
+  function ratingQueue(fn) {
+    return new Promise((res, rej) => {
+      rtWait.push({ fn, res, rej });
+      ratingPump();
+    });
+  }
+  function ratingPump() {
+    while (rtActive < 3 && rtWait.length) {
+      const j = rtWait.shift();
+      rtActive++;
+      Promise.resolve().then(j.fn).then(j.res, j.rej).then(() => {
+        rtActive--;
+        ratingPump();
+      });
+    }
+  }
   var ratingOf = (s) => {
     const r = Number(s && s.rating);
     if (r > 0) return Math.round(Math.min(r, 10) * 10) / 10;
@@ -1263,6 +1303,19 @@
     }
     api(action, params) {
       return getJson(this.base + "/player_api.php?" + qs(Object.assign({ username: this.user, password: this.pass, action }, params)), { timeout: 6e4 });
+    }
+    fetchRating(key) {
+      const c = ratingCache();
+      if (c.m[key] !== void 0) return Promise.resolve(c.m[key]);
+      const kind = String(key).slice(0, 3), id = String(key).slice(4);
+      return ratingQueue(() => kind === "vod" ? this.api("get_vod_info", { vod_id: id }) : this.api("get_series_info", { series_id: id })).then((d) => {
+        const i = d && d.info || {};
+        let v = Number(i.rating) || Number(i.rating_imdb) || Number(i.rating_tmdb) || Number(i.rating_5based) * 2 || 0;
+        v = v > 0 ? Math.round(Math.min(10, v) * 10) / 10 : 0;
+        c.m[key] = v;
+        c.save();
+        return v;
+      }, () => 0);
     }
     streamUrl(kind, id, ext) {
       return this.base + "/" + kind + "/" + encodeURIComponent(this.user) + "/" + encodeURIComponent(this.pass) + "/" + id + "." + ext;
@@ -1494,6 +1547,7 @@
             year: yearOf(info.releasedate) || base.year,
             duration: num(info.duration_secs) * 1e3,
             art: back2 || base.art,
+            audienceRating: base.audienceRating || Number(info.rating) || void 0,
             thumb: base.thumb || info.movie_image,
             Genre: info.genre ? String(info.genre).split(/\s*[,/]\s*/).slice(0, 3).map((tag) => ({ tag })) : void 0,
             Director: info.director ? [{ tag: info.director }] : void 0,
@@ -2298,6 +2352,17 @@
       const showR = rv > 0 && !item.live && item.type !== "episode" && item.type !== "category";
       show(tile.rate, showR);
       if (showR) setText(tile.rate, "\u2605 " + rv.toFixed(1));
+      else if (!item.live && !item._rq && /^(vod|ser):/.test(String(item.ratingKey || "")) && session.server && session.server.fetchRating) {
+        item._rq = 1;
+        session.server.fetchRating(item.ratingKey).then((v) => {
+          if (!(v > 0)) return;
+          item.audienceRating = v;
+          if (tile.item === item) {
+            show(tile.rate, true);
+            setText(tile.rate, "\u2605 " + v.toFixed(1));
+          }
+        });
+      }
     }
     toggleClass(tile.badge, "done", badge === "\u2713");
     if (tile.cap) {
@@ -3534,7 +3599,7 @@
   function nativeBackend(container, listener) {
     const Z = window.ZenPlayer;
     const root3 = document.documentElement;
-    let fb = null, url2 = "", opts2 = {}, readyOk = false, poll = 0, pending = null, seeking = null, dur = 0, lastT = 0, retries = 0, resumeAt = 0;
+    let fb = null, url2 = "", opts2 = {}, readyOk = false, poll = 0, pending = null, seeking = null, dur = 0, lastT = 0, retries = 0, resumeAt = 0, stallT = -1, stallAt = 0, recAt = 0;
     function cls(on) {
       if (on) root3.classList.add("zp-native");
       else root3.classList.remove("zp-native");
@@ -3545,6 +3610,22 @@
         try {
           const tt = Number(Z.time());
           if (tt > 0) lastT = tt;
+          if (readyOk && !fb && dur > 0 && !resumeAt) {
+            const now = Date.now();
+            if (tt !== stallT) {
+              stallT = tt;
+              stallAt = now;
+              if (retries && now - recAt > 6e4) retries = 0;
+            } else if (now - stallAt > 12e3 && tt < dur - 2e4) {
+              let pl = false;
+              try {
+                pl = !!Z.playing();
+              } catch (e3) {
+              }
+              stallAt = now;
+              if (pl) recover();
+            }
+          }
           listener.onTime(tt);
         } catch (e) {
         }
@@ -3554,8 +3635,14 @@
       if (fb || !(dur > 0)) return false;
       const t = Math.max(lastT, 0);
       if (t >= dur - 20000) return false;
+      recAt = Date.now();
+      stallAt = recAt;
       if (retries < 3) {
         retries++;
+        try {
+          toast("Reconnecting\u2026");
+        } catch (e) {
+        }
         resumeAt = t;
         readyOk = false;
         try {
