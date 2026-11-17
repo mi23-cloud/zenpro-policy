@@ -76,6 +76,13 @@
     (document.head || document.documentElement).appendChild(st);
   })();
 
+  (function() {
+    var st = document.createElement("style");
+    st.id = "zp-style4";
+    st.textContent = ".lo-name { font: 700 50px/1.1 var(--display); letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.lo-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.lb-next .lo-title { color: var(--dim); font-size: 24px; }\n.lo-side { flex: none; width: 200px; text-align: right; display: flex; flex-direction: column; justify-content: center; }\n.lo-hint { margin-top: 18px; font: 600 19px var(--body); color: rgba(234, 243, 239, 0.5); }\n.lo-side { flex: none; width: 230px; padding-right: 6px; box-sizing: border-box; }\n.lb-row1 > .lo-name { flex: 1 1 auto; min-width: 0; }\n.lb-chips { max-width: 62%; }\n.lb-chips .chip:not(.chip-live):not(.chip-res) { max-width: 520px; overflow: hidden; text-overflow: ellipsis; }\n.chip-res { flex: none; }\n.chip-br { background: rgba(255, 176, 32, 0.16); color: #ffb020; flex: none; }\n.brand-sub { margin-top: 6px; font: 600 22px var(--body); color: var(--dim); letter-spacing: 0.04em; white-space: nowrap; }";
+    (document.head || document.documentElement).appendChild(st);
+  })();
+
   // app/js/polyfills.js
   if (!String.prototype.padStart) {
     String.prototype.padStart = function(n, s) {
@@ -114,7 +121,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.4";
+  var VERSION = "1.3.6";
 
   // app/js/router.js
   var router_exports = {};
@@ -1303,6 +1310,18 @@
     }
     api(action, params) {
       return getJson(this.base + "/player_api.php?" + qs(Object.assign({ username: this.user, password: this.pass, action }, params)), { timeout: 6e4 });
+    }
+    accountInfo() {
+      if (this._acc) return this._acc;
+      const ms2 = (v) => {
+        const n = Number(v);
+        return n > 0 ? n * 1e3 : 0;
+      };
+      this._acc = getJson(this.base + "/player_api.php?" + qs({ username: this.user, password: this.pass }), { timeout: 12e3 }).then((j) => {
+        const i = j && j.user_info || {};
+        return { start: ms2(i.created_at), end: ms2(i.exp_date), unlimited: !ms2(i.exp_date) && (i.exp_date === null || i.exp_date === "" || i.exp_date === "0" || i.exp_date === 0) };
+      }, () => null);
+      return this._acc;
     }
     fetchRating(key) {
       const c = ratingCache();
@@ -4009,6 +4028,14 @@
     const d = new Date(ms2);
     return pad(d.getHours()) + ":" + pad(d.getMinutes());
   };
+  function qualityOf(it) {
+    const t = String(it && it.title || "") + " " + String(it && it.cat || "");
+    if (/(^|[^A-Z0-9])(4K|UHD|2160P?)([^A-Z0-9]|$)/i.test(t)) return "4K";
+    if (/(^|[^A-Z0-9])(FHD|FULL ?HD|1080P?)([^A-Z0-9]|$)/i.test(t)) return "FHD";
+    if (/(^|[^A-Z0-9])(HD|720P?)([^A-Z0-9]|$)/i.test(t)) return "HD";
+    if (/(^|[^A-Z0-9])(SD|480P?)([^A-Z0-9]|$)/i.test(t)) return "SD";
+    return "";
+  }
   function LiveUi({ parent, server, onPlay }) {
     const root3 = h("div", "live", parent);
     const bar = h("div", "live-bar glass", root3);
@@ -4016,7 +4043,7 @@
     const body = h("div", "lb-body", bar);
     const row1 = h("div", "lb-row1", body);
     const num2 = h("span", "lb-num", row1);
-    const name = h("span", "lb-name", row1);
+    const name = h("span", "lo-name", row1);
     const favStar = h("span", "lb-star", row1);
     favStar.textContent = "\u2605";
     const chips = h("span", "lb-chips", row1);
@@ -4024,22 +4051,23 @@
     chipLive.textContent = "LIVE";
     const chipCat = h("span", "chip", chips);
     const chipRes = h("span", "chip chip-res", chips);
+    const chipBr = h("span", "chip chip-br hidden", chips);
     const now = h("div", "lb-line", body);
     const nowTag = h("span", "lb-tag", now);
     nowTag.textContent = "NOW";
-    const nowTitle = h("span", "lb-title", now);
+    const nowTitle = h("span", "lo-title", now);
     const nowTime = h("span", "lb-time", now);
     const prog = h("div", "lb-prog", body);
     const progFill = h("div", "lb-prog-fill", prog);
     const next = h("div", "lb-line lb-next", body);
     const nextTag = h("span", "lb-tag", next);
     nextTag.textContent = "NEXT";
-    const nextTitle = h("span", "lb-title", next);
+    const nextTitle = h("span", "lo-title", next);
     const nextTime = h("span", "lb-time", next);
-    const side = h("div", "lb-side", bar);
+    const side = h("div", "lo-side", bar);
     const clock2 = h("div", "lb-clock", side);
     const date = h("div", "lb-date", side);
-    const hint = h("div", "lb-hint", side);
+    const hint = h("div", "lo-hint", side);
     hint.textContent = "OK  channels";
     const list = h("div", "live-list glass", root3);
     const head = h("div", "ll-head", list);
@@ -4172,8 +4200,11 @@
       toggleClass(favStar, "on", server.isFav ? server.isFav(it.ratingKey) : false);
       setText(chipCat, it.cat || "");
       toggleClass(chipCat, "hidden", !it.cat);
-      setText(chipRes, "");
-      toggleClass(chipRes, "hidden", true);
+      const qn = qualityOf(it);
+      setText(chipRes, qn);
+      toggleClass(chipRes, "hidden", !qn);
+      setText(chipBr, "");
+      toggleClass(chipBr, "hidden", true);
       const fallback = server.image(it.thumb, 160, 160) || "";
       art.referrerPolicy = "no-referrer";
       const logoSrc = it.logo ? server.image(it.logo, 160, 160) : "";
@@ -4206,10 +4237,21 @@
       }).catch(() => {
       });
     }
+    function resLabel(h2) {
+      return (h2 >= 1900 ? "4K" : h2 >= 1e3 ? "FHD" : h2 >= 700 ? "HD" : "SD") + " " + (h2 >= 1900 ? 2160 : h2) + "p";
+    }
     function setRes(info) {
-      const ok = info && info.height > 0;
-      setText(chipRes, ok ? (info.height >= 2e3 ? "4K" : info.height >= 1e3 ? "FHD" : info.height >= 700 ? "HD" : "SD") + "  " + info.width + "\xD7" + info.height : "");
-      toggleClass(chipRes, "hidden", !ok);
+      const w2 = info && (info.width || info.w) || 0;
+      const h2 = info && (info.height || info.h) || 0;
+      if (!(h2 > 0)) return false;
+      setText(chipRes, resLabel(h2));
+      chipRes.title = w2 + "\xD7" + h2;
+      toggleClass(chipRes, "hidden", false);
+      return true;
+    }
+    function setBitrate(mbps) {
+      if (mbps > 0) setText(chipBr, (mbps >= 10 ? mbps.toFixed(0) : mbps.toFixed(1)) + " Mbps");
+      toggleClass(chipBr, "hidden", !(mbps > 0));
     }
     function showBar(sticky) {
       toggleClass(root3, "bar-on", true);
@@ -4579,7 +4621,7 @@
       choosePicked();
     }));
     list.addEventListener("click", (e) => e.stopPropagation());
-    return { setItem, setRes, flash, openList, closeList, openPicker, isListOpen, digit, toggleFavCurrent, isBarOn: () => root3.classList.contains("bar-on"), hideBar, key, neighbor, destroy: destroy2 };
+    return { setItem, setRes, setBitrate, flash, openList, closeList, openPicker, isListOpen, digit, toggleFavCurrent, isBarOn: () => root3.classList.contains("bar-on"), hideBar, key, neighbor, destroy: destroy2 };
   }
 
   // app/js/sleep.js
@@ -4910,13 +4952,36 @@
         log("playing after " + (Date.now() - t0) + "ms (" + mode + ")");
         report("playing");
         startTimeline();
-        if (live && player.info) setTimeout(() => {
-          if (alive && started) live.setRes(player.info());
-        }, 1800);
+        if (live && player.info) {
+          let tries = 0;
+          const probe = () => {
+            if (!alive || !started) return;
+            if (!live.setRes(player.info()) && ++tries < 8) setTimeout(probe, 2500);
+          };
+          setTimeout(probe, 1800);
+        }
+        if (live && window.ZenPlayer && window.ZenPlayer.rx && !fbWeb()) {
+          const myOpen2 = openId;
+          const sample = () => {
+            if (!alive || !started || myOpen2 !== openId) return;
+            const a = Number(window.ZenPlayer.rx());
+            if (!(a >= 0)) return;
+            setTimeout(() => {
+              if (!alive || !started || myOpen2 !== openId) return;
+              const b = Number(window.ZenPlayer.rx());
+              if (b > a) live.setBitrate((b - a) * 8 / 5e6);
+              setTimeout(sample, 2e4);
+            }, 5e3);
+          };
+          setTimeout(sample, 4e3);
+        }
         if (live) setTimeout(() => {
           if (alive && started) liveRetry = 0;
         }, 6e4);
       });
+    }
+    function fbWeb() {
+      return false;
     }
     function applyTracks() {
       const t = player.tracks();
@@ -8421,9 +8486,10 @@
       h("small", "", add).textContent = "Activation code, Xtream or MAC portal";
       rows.push({ el: add, p: null });
       const now = currentId();
-      items.forEach((p) => {
+      items.forEach((p, pi) => {
         const b = h("div", "btn btn-wide", list);
-        h("span", "", b).textContent = p.label;
+        const kindName = String(p.label || "").split(" \xB7 ")[0] || "Server";
+        h("span", "", b).textContent = p.saved && p.saved.managed ? p.label : kindName + " \xB7 Server " + (pi + 1);
         h("small", "", b).textContent = p.id === now ? "\u25CF  In use now" : "OK to switch   \xB7   Y to remove";
         toggleClass(b, "current", p.id === now);
         rows.push({ el: b, p });
@@ -8627,13 +8693,13 @@
     const view = h("div", "settings-view", el3);
     const list = h("div", "settings-list", view);
     const foot = h("div", "settings-foot", el3);
-    foot.textContent = "Zen Pro " + VERSION + (DEV ? " (dev)" : "") + " \xB7 " + actFootAddr();
+    foot.textContent = "Zen Pro " + VERSION + (DEV ? " (dev)" : "");
     let index = 0;
     let items = [];
     function build() {
       list.innerHTML = "";
       items = [
-        { label: "Servers", value: (session.server ? session.server.name : "\u2014") + "  \xB7  " + (profiles().length || 0) + " saved", run: () => push(ServersScreen({ onDone: restart2 })) },
+        { label: "Servers", value: (profiles().length || 0) + " saved", run: () => push(ServersScreen({ onDone: restart2 })) },
         { label: "Signed in as", value: session.user ? session.user.title : "\u2014", run: doSignOut, action: "Sign out" },
         { label: "Device ID", value: deviceId(), run: () => toast("Give this ID to your provider: " + deviceId(), 7e3) },
         { label: "Activation", value: actStatusText(), run: () => {
@@ -8882,6 +8948,34 @@
     settings: '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="9" fill="none" stroke="currentColor" stroke-width="4"/><path d="M32 6l4 7 8-2 2 8 8 3-3 8 5 6-6 5 1 8-8 1-5 7-7-4-7 4-5-7-8-1 1-8-6-5 5-6-3-8 8-3 2-8 8 2z" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linejoin="round"/></svg>'
   };
   // Home: three big choices in the middle (Live TV / Movies / Series) and Settings; Search and Servers are small buttons on top.
+  function fmtDay(ms2) {
+    const d = new Date(ms2);
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  }
+  function subscriptionLine(parent) {
+    const el3 = h("div", "brand-sub", parent);
+    el3.style.display = "none";
+    function show(start, end, unlimited) {
+      const parts = [];
+      if (start) parts.push("From " + fmtDay(start));
+      if (end) {
+        const left = Math.ceil((end - Date.now()) / 864e5);
+        parts.push("Until " + fmtDay(end) + (left >= 0 ? "  (" + left + " days)" : "  (expired)"));
+      } else if (unlimited) parts.push("No end date");
+      if (!parts.length) return;
+      el3.textContent = "Subscription  " + parts.join("   \xB7   ");
+      el3.style.display = "";
+    }
+    const act = get("act");
+    const sv = session.server;
+    if (sv && sv.accountInfo) {
+      sv.accountInfo().then((a) => {
+        if (a && (a.start || a.end || a.unlimited)) show(a.start, a.end, a.unlimited);
+        else if (act && act.expires) show(0, Number(act.expires), false);
+      });
+    } else if (act && act.expires && !act.invalid) show(0, Number(act.expires), false);
+    return el3;
+  }
   function HomeScreen() {
     const el3 = h("div", "screen home menu-home");
     const ambience = useAmbience();
@@ -8890,7 +8984,8 @@
     h("img", "brand-mark", brand).src = "img/mascot.png";
     const brandText = h("div", "brand-text", brand);
     h("img", "brand-wordmark", brandText).src = "img/wordmark.png";
-    h("div", "brand-by", brandText).textContent = "Live \\xB7 VOD \\xB7 Series";
+    h("div", "brand-by", brandText).textContent = "Live \xB7 VOD \xB7 Series";
+    subscriptionLine(brandText);
     const tools = h("div", "mh-tools", top2);
     const toolItems = [
       { id: "search", icon: search, label: "Search", run: openSearch },
@@ -9020,7 +9115,8 @@
     let shown = false;
     const CAT_ROWS = 9;
     const CH_ROWS = 10;
-    const canPreview = () => false;
+    const canPreview = () => !(typeof webapis !== "undefined" && webapis.avplay);
+    let pvKey = "";
     function fitImg(img, item) {
       img.onerror = () => {
         img.onerror = null;
@@ -9169,6 +9265,7 @@
     }
     function stopPreview() {
       clearTimeout(pvTimer);
+      pvKey = "";
       pvId++;
       toggleClass(pvSpin, "on", false);
       if (pv) {
@@ -9180,14 +9277,20 @@
       }
     }
     function schedulePreview() {
-      clearTimeout(pvTimer);
-      if (!canPreview() || !shown) return;
+    }
+    function okOnChannel() {
       const c = chans[hi];
-      if (!c || zone === "cats") {
-        if (zone === "cats") stopPreview();
+      if (!c) return;
+      if (!canPreview() || !shown) {
+        openFull();
         return;
       }
-      pvTimer = setTimeout(() => runPreview(c), 650);
+      if (pv && pvKey === c.ratingKey) {
+        openFull();
+        return;
+      }
+      pvKey = c.ratingKey;
+      runPreview(c);
     }
     function runPreview(c) {
       const my = ++pvId;
@@ -9308,7 +9411,7 @@
               paintAll();
               schedulePreview();
             }
-          } else openFull();
+          } else okOnChannel();
           return true;
         }
         return false;
@@ -9598,6 +9701,7 @@
     const brandText = h("div", "brand-text", brand);
     h("img", "brand-wordmark", brandText).src = "img/wordmark.png";
     h("div", "brand-by", brandText).textContent = "Live \xB7 VOD \xB7 Series";
+    subscriptionLine(brandText);
     const navEl = h("nav", "nav", top2);
     const navTrack = h("div", "nav-track", navEl);
     const info = h("div", "hero-info", el3);
