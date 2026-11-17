@@ -121,7 +121,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.6";
+  var VERSION = "1.3.7";
 
   // app/js/router.js
   var router_exports = {};
@@ -3609,6 +3609,7 @@
   // can't start a stream, that stream is opened with the web player instead, so nothing gets worse.
   // ===================================================================================
   var zpOwner = null;
+  var zpWarm = null;
   window.__zenPlayerEvent = function(e) {
     if (zpOwner && zpOwner.onEvent) zpOwner.onEvent(e);
   };
@@ -3685,6 +3686,7 @@
       fb.prepare().then(() => fb.seek(Math.max(0, t - 2e3))).then(() => fb.play()).catch(() => listener.onError("playback stopped"));
       return true;
     }
+    let adopted = false;
     const api = {
       onEvent(e) {
         if (fb) return;
@@ -3736,6 +3738,26 @@
           }
           fb = null;
         }
+        if (zpWarm && zpWarm.url === url && Date.now() - zpWarm.at < 2e4) {
+          clearTimeout(zpWarm.timer);
+          zpWarm = null;
+          zpOwner = api;
+          url2 = url;
+          opts2 = opts || {};
+          readyOk = true;
+          adopted = true;
+          cls(true);
+          const r0 = opts2.rect || [0, 0, 1, 1];
+          try {
+            Z.rect(r0[0], r0[1], r0[2], r0[3]);
+          } catch (e) {
+          }
+          return;
+        }
+        if (zpWarm) {
+          clearTimeout(zpWarm.timer);
+          zpWarm = null;
+        }
         zpOwner = api;
         url2 = url;
         opts2 = opts || {};
@@ -3750,6 +3772,10 @@
       },
       prepare() {
         if (fb) return fb.prepare();
+        if (adopted) {
+          adopted = false;
+          return Promise.resolve();
+        }
         return new Promise((resolve, reject) => {
           const t = setTimeout(() => {
             if (pending) {
@@ -3779,6 +3805,25 @@
             set("nativeFails", (get("nativeFails", 0) || 0) + 1);
           });
         });
+      },
+      handoff() {
+        if (fb || !readyOk) return false;
+        clearInterval(poll);
+        pending = null;
+        if (zpOwner === api) zpOwner = null;
+        const w = { url: url2, at: Date.now(), timer: 0 };
+        w.timer = setTimeout(() => {
+          if (zpWarm === w) {
+            zpWarm = null;
+            try {
+              Z.stop();
+            } catch (e) {
+            }
+            cls(false);
+          }
+        }, 2e4);
+        zpWarm = w;
+        return true;
       },
       setRect(r) {
         if (!fb) try {
@@ -4036,7 +4081,7 @@
     if (/(^|[^A-Z0-9])(SD|480P?)([^A-Z0-9]|$)/i.test(t)) return "SD";
     return "";
   }
-  function LiveUi({ parent, server, onPlay }) {
+  function LiveUi({ parent, server, onPlay, onQuad }) {
     const root3 = h("div", "live", parent);
     const bar = h("div", "live-bar glass", root3);
     const art = h("img", "lb-art", bar);
@@ -4100,7 +4145,7 @@
       catRows.push({ r, d: h("span", "ll-cdot", r), t: h("span", "ll-ct", r), c: h("span", "ll-cn", r) });
     }
     const foot = h("div", "ll-foot", list);
-    foot.textContent = "\u25C0 \u25B6 Bouquet  \xB7  G / title: all bouquets  \xB7  OK Watch  \xB7  F \u2605 Favorite  \xB7  Back";
+    foot.textContent = "\u25C0 Split screen  \xB7  \u25B6 Bouquets  \xB7  OK Watch  \xB7  F \u2605 Favorite  \xB7  Back";
     const numEl = h("div", "lb-number", root3);
     let item = null;
     let epg = null;
@@ -4491,10 +4536,13 @@
           sel = Math.min(chans.length - 1, sel + ROWS);
           break;
         case "left":
-          changeCat(-1);
+          if (onQuad) {
+            closeList();
+            onQuad();
+          }
           return true;
         case "right":
-          changeCat(1);
+          openPicker();
           return true;
         case "red":
           toggleFav(chans[sel]);
@@ -4784,7 +4832,7 @@
     let startId = 0;
     let liveRetry = 0;
     let prevItem = null;
-    const live = initial.live ? LiveUi({ parent: el3, server: session.server, onPlay: (ch) => switchChannel(ch) }) : null;
+    const live = initial.live ? LiveUi({ parent: el3, server: session.server, onPlay: (ch) => switchChannel(ch), onQuad: () => openQuad() }) : null;
     if (live) el3.classList.add("is-live");
     let media = null;
     let part = null;
@@ -5267,6 +5315,17 @@
       clearInterval(upnextTimer);
       replace(PlayerScreen(nextItem, { offset: 0 }));
     }
+    function openQuad() {
+      if (!alive) return;
+      clearTimeout(watchdog);
+      openId++;
+      started = false;
+      try {
+        player.close();
+      } catch (e) {
+      }
+      push(QuadScreen({ current: item }));
+    }
     function exit() {
       back();
     }
@@ -5449,6 +5508,356 @@
       onHide() {
       },
       destroy: teardown
+    };
+  }
+
+  // ===================================================================================
+  // Split screen: four live channels at once. Each square can use any saved IPTV server.
+  // Uses the web player (one <video> per square); the single native player is stopped while this screen is open.
+  // ===================================================================================
+  function QuadScreen(opts) {
+    opts = opts || {};
+    if (!document.getElementById("zp-quad-css")) {
+      const st = document.createElement("style");
+      st.id = "zp-quad-css";
+      st.textContent = ".zq{background:#000;color:#fff}" + ".zq-grid{position:absolute;left:0;top:0;width:100%;height:calc(100% - 46px);display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;padding:6px;box-sizing:border-box}" + ".zq-tile{position:relative;overflow:hidden;background:#0b1620;border:3px solid #1c2b38;border-radius:10px;box-sizing:border-box}" + ".zq-tile.focus{border-color:#2fe0c4}" + ".zq-tile.zoom{position:absolute;left:0;top:0;width:100%;height:100%;z-index:5;border-radius:0}" + ".zq-tile video{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;background:#000}" + ".zq-msg{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:30px;color:#9fb3c2;text-align:center;padding:20px;z-index:1}" + ".zq-msg.off{display:none}" + ".zq-lbl{position:absolute;left:0;right:0;bottom:0;padding:8px 14px;font-size:26px;z-index:2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:linear-gradient(transparent,rgba(0,0,0,.78))}" + ".zq-foot{position:absolute;left:0;right:0;bottom:0;height:46px;line-height:46px;text-align:center;font-size:24px;color:#9fb3c2;background:#05090d}" + ".zq-pick{position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center}" + ".zq-pick.hidden{display:none}" + ".zq-box{width:1100px;background:#0e1b26;border:2px solid #2fe0c4;border-radius:14px;padding:24px 28px;box-sizing:border-box}" + ".zq-pt{font-size:32px;margin-bottom:14px;color:#2fe0c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" + ".zq-pr{font-size:30px;padding:9px 16px;border-radius:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" + ".zq-pr.on{background:#2fe0c4;color:#04201b}" + ".zq-pp{font-size:24px;color:#9fb3c2;margin-top:12px;text-align:right}";
+      document.head.appendChild(st);
+    }
+    const el3 = h("div", "screen zq");
+    const grid = h("div", "zq-grid", el3);
+    const foot = h("div", "zq-foot", el3);
+    foot.textContent = "\u25C0 \u25B2 \u25BC \u25B6 Select  \xB7  OK Choose channel  \xB7  G Zoom  \xB7  F Clear  \xB7  Back Exit";
+    const pick = h("div", "zq-pick hidden", el3);
+    const box = h("div", "zq-box", pick);
+    const pTitle = h("div", "zq-pt", box);
+    const ROWS = 10;
+    const pRows = [];
+    for (let i = 0; i < ROWS; i++) pRows.push(h("div", "zq-pr", box));
+    const pPos = h("div", "zq-pp", box);
+    function profId(s) {
+      return s ? [s.kind || "plex", s.uri, s.user || s.mac || ""].join("|") : "";
+    }
+    let assign = [];
+    try {
+      const saved2 = get("quad", []);
+      for (let i = 0; i < 4; i++) assign.push(saved2 && saved2[i] && saved2[i].ratingKey ? saved2[i] : null);
+    } catch (e) {
+      assign = [null, null, null, null];
+    }
+    if (!assign.some(Boolean) && opts.current && opts.current.ratingKey && session.server) {
+      const sv0 = session.server;
+      assign[0] = { pid: profId(sv0.saved), pname: "Current", ratingKey: opts.current.ratingKey, title: opts.current.title || "", cat: "" };
+    }
+    const tiles = [];
+    for (let i = 0; i < 4; i++) {
+      const t = h("div", "zq-tile", grid);
+      const msg = h("div", "zq-msg", t);
+      const lbl = h("div", "zq-lbl", t);
+      tiles.push({ el: t, msg, lbl, b: null, gen: 0, retries: 0 });
+    }
+    let alive = true;
+    let begun = false;
+    let focus = 0;
+    let zoomOn = false;
+    let pk = null;
+    const servers = {};
+    function serverFor(pid) {
+      if (servers[pid]) return servers[pid];
+      if (session.server && profId(session.server.saved) === pid) return servers[pid] = session.server;
+      const p = profiles().find((x) => x.id === pid);
+      if (!p) throw new Error("Server not found");
+      if (policyLocked() && !p.saved.managed) throw new Error(policyMsg());
+      return servers[pid] = makeServer(p.saved);
+    }
+    function paintTile(i) {
+      const t = tiles[i];
+      const a = assign[i];
+      toggleClass(t.el, "focus", i === focus);
+      toggleClass(t.el, "zoom", zoomOn && i === focus);
+      for (let k = 0; k < 4; k++) tiles[k].el.style.visibility = zoomOn && k !== focus ? "hidden" : "";
+      setText(t.lbl, a ? i + 1 + "  \xB7  " + a.title + (a.pname ? "  \xB7  " + a.pname : "") : i + 1);
+    }
+    function paintAll() {
+      for (let i = 0; i < 4; i++) paintTile(i);
+      applyAudio();
+    }
+    function say(i, text) {
+      const t = tiles[i];
+      setText(t.msg, text || "");
+      toggleClass(t.msg, "off", !text);
+    }
+    function videoOf(i) {
+      return tiles[i].el.querySelector("video");
+    }
+    function applyAudio() {
+      for (let i = 0; i < 4; i++) {
+        const v = videoOf(i);
+        if (v) v.muted = i !== focus;
+      }
+    }
+    function stopTile(i) {
+      const t = tiles[i];
+      t.gen++;
+      if (t.b) {
+        try {
+          t.b.destroy();
+        } catch (e) {
+        }
+        t.b = null;
+      }
+    }
+    function retryLater(i, my, why) {
+      const t = tiles[i];
+      if (!alive || my !== t.gen) return;
+      if (t.retries < 2) {
+        t.retries++;
+        say(i, "Reconnecting\u2026");
+        setTimeout(() => {
+          if (alive && my === t.gen) startTile(i);
+        }, 3e3);
+      } else say(i, (why || "Stream stopped") + "\nOK: choose another channel");
+    }
+    function startTile(i) {
+      const t = tiles[i];
+      const a = assign[i];
+      stopTile(i);
+      if (!a) {
+        say(i, "OK: choose a channel");
+        return;
+      }
+      const my = t.gen;
+      say(i, "Loading\u2026");
+      let server;
+      try {
+        server = serverFor(a.pid);
+      } catch (e) {
+        say(i, e.message || String(e));
+        return;
+      }
+      server.metadata(a.ratingKey).then((full) => {
+        if (!alive || my !== t.gen) return;
+        const part = full && full.Media && full.Media[0] && full.Media[0].Part && full.Media[0].Part[0];
+        if (!part) throw new Error("No stream");
+        const b = videoBackend(t.el, {
+          onTime() {
+          },
+          onBuffering() {
+          },
+          onEnd() {
+            retryLater(i, my, "Stream ended");
+          },
+          onError(m) {
+            retryLater(i, my, m || "Stream error");
+          }
+        });
+        t.b = b;
+        b.open(server.url(part.key), { format: part.format });
+        return b.prepare().then(() => {
+          if (!alive || my !== t.gen) return;
+          applyAudio();
+          b.play();
+          say(i, "");
+          t.retries = 0;
+        });
+      }).catch((e) => {
+        if (alive && my === t.gen) retryLater(i, my, e && e.message ? e.message : "Could not start");
+      });
+    }
+    function renderPick() {
+      const k = pk;
+      if (!k) return;
+      setText(pTitle, k.title);
+      const start2 = Math.max(0, Math.min(k.sel - 4, k.list.length - ROWS));
+      for (let i = 0; i < ROWS; i++) {
+        const idx = start2 + i;
+        const r = pRows[i];
+        const it = k.list[idx];
+        if (!it) {
+          r.style.display = "none";
+          continue;
+        }
+        r.style.display = "";
+        r.textContent = (k.step === "chan" ? idx + 1 + "   " : "") + it.label;
+        r.className = "zq-pr" + (idx === k.sel ? " on" : "");
+      }
+      setText(pPos, k.list.length ? k.sel + 1 + " / " + k.list.length : k.loading ? "Loading\u2026" : "Empty");
+    }
+    function closePick() {
+      pk = null;
+      pick.classList.add("hidden");
+    }
+    function openPicker(i) {
+      ensureCurrentProfile();
+      const ps = profiles().filter((p) => p.saved && (p.saved.kind === "xtream" || p.saved.kind === "stalker") && !(policyLocked() && !p.saved.managed));
+      if (!ps.length) {
+        toast("No IPTV servers saved");
+        return;
+      }
+      pk = { step: "server", tile: i, list: ps.map((p) => ({ label: p.label, p })), sel: 0, title: "Square " + (i + 1) + " \u2014 choose server", prev: null };
+      if (assign[i]) {
+        const j = ps.findIndex((p) => p.id === assign[i].pid);
+        if (j >= 0) pk.sel = j;
+      }
+      pick.classList.remove("hidden");
+      renderPick();
+      if (ps.length === 1) pickEnter();
+    }
+    function pickEnter() {
+      const k = pk;
+      const it = k && k.list[k.sel];
+      if (!it) return;
+      if (k.step === "server") {
+        let server;
+        try {
+          server = serverFor(it.p.id);
+        } catch (e) {
+          toast(e.message || String(e));
+          return;
+        }
+        const nk = { step: "cat", tile: k.tile, pid: it.p.id, pname: it.p.label, server, list: [], sel: 0, title: it.p.label + " \u2014 bouquet", loading: true, prev: k };
+        pk = nk;
+        renderPick();
+        server.items("live", 0, 1e5).then((r) => {
+          if (pk !== nk) return;
+          let cats = (r.items || []).filter((x) => x.type === "category" && !(x.locked && adultHidden()));
+          if (!cats.length) cats = [{ title: "All", sectionKey: "live", type: "category" }];
+          nk.list = cats.map((c) => ({ label: c.title, c }));
+          nk.loading = false;
+          renderPick();
+        }, (e) => {
+          if (pk !== nk) return;
+          nk.loading = false;
+          nk.title = "Could not load: " + (e && e.message ? e.message : e);
+          renderPick();
+        });
+      } else if (k.step === "cat") {
+        const c = it.c;
+        const nk = { step: "chan", tile: k.tile, pid: k.pid, pname: k.pname, server: k.server, cat: c.title, list: [], sel: 0, title: k.pname + " \u2014 " + c.title, loading: true, prev: k };
+        pk = nk;
+        renderPick();
+        k.server.items(c.sectionKey, 0, 1e5).then((r) => {
+          if (pk !== nk) return;
+          nk.list = (r.items || []).filter((x) => x.type !== "category").map((ch) => ({ label: ch.title, ch }));
+          nk.loading = false;
+          renderPick();
+        }, (e) => {
+          if (pk !== nk) return;
+          nk.loading = false;
+          nk.title = "Could not load: " + (e && e.message ? e.message : e);
+          renderPick();
+        });
+      } else {
+        const ch = it.ch;
+        assign[k.tile] = { pid: k.pid, pname: k.pname, ratingKey: ch.ratingKey, title: ch.title, cat: k.cat };
+        set("quad", assign);
+        closePick();
+        tiles[k.tile].retries = 0;
+        paintTile(k.tile);
+        startTile(k.tile);
+      }
+    }
+    function pickKey(action) {
+      const k = pk;
+      const n = k.list.length;
+      switch (action) {
+        case "up":
+          k.sel = Math.max(0, k.sel - 1);
+          break;
+        case "down":
+          k.sel = Math.min(n - 1, k.sel + 1);
+          break;
+        case "pageup":
+          k.sel = Math.max(0, k.sel - ROWS);
+          break;
+        case "pagedown":
+          k.sel = Math.min(n - 1, k.sel + ROWS);
+          break;
+        case "enter":
+          pickEnter();
+          return true;
+        case "back":
+        case "stop":
+          if (k.prev) {
+            pk = k.prev;
+            renderPick();
+          } else closePick();
+          return true;
+        default:
+          return true;
+      }
+      renderPick();
+      return true;
+    }
+    function moveFocus(action) {
+      let r = focus >> 1, c = focus & 1;
+      if (action === "left") c = 0;
+      else if (action === "right") c = 1;
+      else if (action === "up") r = 0;
+      else r = 1;
+      const n = r * 2 + c;
+      if (n === focus) return;
+      focus = n;
+      paintAll();
+    }
+    return {
+      el: el3,
+      name: "quad",
+      onShow() {
+        if (begun) return;
+        begun = true;
+        paintAll();
+        for (let i = 0; i < 4; i++) {
+          if (assign[i]) setTimeout(() => {
+            if (alive) startTile(i);
+          }, i * 400);
+          else say(i, "OK: choose a channel");
+        }
+      },
+      destroy() {
+        alive = false;
+        closePick();
+        for (let i = 0; i < 4; i++) stopTile(i);
+      },
+      onKey(action) {
+        if (pk) return pickKey(action);
+        switch (action) {
+          case "left":
+          case "right":
+          case "up":
+          case "down":
+            moveFocus(action);
+            return true;
+          case "enter":
+            openPicker(focus);
+            return true;
+          case "green":
+          case "playpause":
+            if (assign[focus]) {
+              zoomOn = !zoomOn;
+              paintAll();
+            }
+            return true;
+          case "red":
+            if (assign[focus]) {
+              stopTile(focus);
+              assign[focus] = null;
+              set("quad", assign);
+              say(focus, "OK: choose a channel");
+              paintTile(focus);
+            }
+            return true;
+          case "back":
+          case "stop":
+            if (zoomOn) {
+              zoomOn = false;
+              paintAll();
+              return true;
+            }
+            return false;
+          default:
+            return false;
+        }
+      }
     };
   }
 
@@ -8956,14 +9365,11 @@
     const el3 = h("div", "brand-sub", parent);
     el3.style.display = "none";
     function show(start, end, unlimited) {
-      const parts = [];
-      if (start) parts.push("From " + fmtDay(start));
       if (end) {
         const left = Math.ceil((end - Date.now()) / 864e5);
-        parts.push("Until " + fmtDay(end) + (left >= 0 ? "  (" + left + " days)" : "  (expired)"));
-      } else if (unlimited) parts.push("No end date");
-      if (!parts.length) return;
-      el3.textContent = "Subscription  " + parts.join("   \xB7   ");
+        el3.textContent = "Expire date  " + fmtDay(end) + (left >= 0 ? "  (" + left + " days)" : "  (expired)");
+      } else if (unlimited) el3.textContent = "Expire date  No end date";
+      else return;
       el3.style.display = "";
     }
     const act = get("act");
@@ -9117,6 +9523,7 @@
     const CH_ROWS = 10;
     const canPreview = () => !(typeof webapis !== "undefined" && webapis.avplay);
     let pvKey = "";
+    let leaving = false;
     function fitImg(img, item) {
       img.onerror = () => {
         img.onerror = null;
@@ -9336,9 +9743,37 @@
         if (my === pvId) toggleClass(pvSpin, "on", false);
       });
     }
+    function expandPreview(p, done) {
+      const from = pvRect();
+      const t0 = Date.now();
+      const D = 260;
+      el3.style.transition = "opacity .22s ease";
+      el3.style.opacity = "0";
+      const step = () => {
+        const k = Math.min(1, (Date.now() - t0) / D);
+        const e = 1 - Math.pow(1 - k, 3);
+        try {
+          p.setRect([from[0] * (1 - e), from[1] * (1 - e), from[2] + (1 - from[2]) * e, from[3] + (1 - from[3]) * e]);
+        } catch (err) {
+        }
+        if (k < 1) requestAnimationFrame(step);
+        else done();
+      };
+      requestAnimationFrame(step);
+    }
     function openFull() {
       const c = chans[hi];
       if (!c) return;
+      if (pv && pv.handoff && shown && pvKey === c.ratingKey && pv.handoff()) {
+        const p = pv;
+        pv = null;
+        pvKey = "";
+        pvId++;
+        leaving = true;
+        toggleClass(pvSpin, "on", false);
+        expandPreview(p, () => playItem(c));
+        return;
+      }
       stopPreview();
       playItem(c);
     }
@@ -9356,6 +9791,9 @@
       name: "live-browser",
       onShow() {
         shown = true;
+        leaving = false;
+        el3.style.transition = "";
+        el3.style.opacity = "";
         document.documentElement.classList.add("lb-on");
         paintAll();
         schedulePreview();
@@ -9373,6 +9811,7 @@
         stopPreview();
       },
       onKey(action) {
+        if (leaving) return true;
         if (action === "up" || action === "down") {
           const d = action === "up" ? -1 : 1;
           if (zone === "cats") {

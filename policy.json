@@ -7,10 +7,10 @@
   "support": "",
   "activationServer": "",
   "update": {
-    "version": "1.3.6",
+    "version": "1.3.7",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "7/fw//dAx/YEZkzz8wb1SGTszhRdxL4EeNpiDUihhttLkm3HcUFAwqPI8DYZGfiqZR//Xq7lIldBR6MYg1Z8CQ==",
-    "notes": "عرض الجودة الحقيقية (HD 720p/FHD 1080p) ومعدّل البث",
-    "size": 399176
+    "sig": "QP1alwhll5hwVl44eklam18u6V/S6NvBAyxO/L4Ymr0oOJfyuWBlgNFA61GKI2CdjihTcvf+cU6Y9DcjdySrDA==",
+    "notes": "تكبير سلس من المعاينة للشاشة الكاملة، تقسيم الشاشة إلى 4 قنوات من سيرفرات مختلفة (السهم الأيسر)، السهم الأيمن للباقات، وتبسيط سطر الاشتراك",
+    "size": 415074
   }
 }
