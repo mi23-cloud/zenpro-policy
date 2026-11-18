@@ -7,10 +7,10 @@
   "support": "",
   "activationServer": "",
   "update": {
-    "version": "1.3.7",
+    "version": "1.3.9",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "QP1alwhll5hwVl44eklam18u6V/S6NvBAyxO/L4Ymr0oOJfyuWBlgNFA61GKI2CdjihTcvf+cU6Y9DcjdySrDA==",
-    "notes": "تكبير سلس من المعاينة للشاشة الكاملة، تقسيم الشاشة إلى 4 قنوات من سيرفرات مختلفة (السهم الأيسر)، السهم الأيمن للباقات، وتبسيط سطر الاشتراك",
-    "size": 415074
+    "sig": "rZ/bY72qHCxOH9O0eFE5+d6XlN5kF9DPEw1yAlO+sdPGk/aAS9dAh/XeB0Bd0k1DDWvyg2YbAM9RkbD3N3p6Bw==",
+    "notes": "عودة سلسة للمعاينة بعد الشاشة الكاملة، قسم المفضلة بزر القائمة، وتقسيم الشاشة 2 أو 3 أو 4 مربعات بواجهة نظيفة",
+    "size": 424209
   }
 }
