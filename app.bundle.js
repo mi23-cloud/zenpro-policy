@@ -121,7 +121,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.11";
+  var VERSION = "1.3.12";
 
   // app/js/router.js
   var router_exports = {};
@@ -922,6 +922,14 @@
       this.noTranscode = true;
       this.mem = /* @__PURE__ */ new Map();
       this.lists = {};
+    }
+    // Forget everything loaded from this provider (channel lists, account info, guide data) so the next use fetches it again.
+    refresh() {
+      this.lists = {};
+      this.mem = /* @__PURE__ */ new Map();
+      this._acc = null;
+      this.epgCache = {};
+      this.invalidate();
     }
     // Memoised async loader; a failed load is not remembered.
     once(key, fn) {
@@ -3387,6 +3395,7 @@
     let ts = null;
     let source = "";
     let kind = "native";
+    const bufSec = () => listener.bufferSec || liveBuffer();
     v.addEventListener("timeupdate", () => listener.onTime(v.currentTime * 1e3));
     v.addEventListener("waiting", () => {
       listener.onBuffering(true);
@@ -3395,7 +3404,7 @@
     v.addEventListener("playing", () => listener.onBuffering(false));
     v.addEventListener("ended", () => listener.onEnd());
     v.addEventListener("error", () => {
-      if (kind === "native") listener.onError("video error " + (v.error && v.error.code));
+      if (kind === "native" || listener.fast) listener.onError("video error " + (v.error && v.error.code));
     });
     function stopStreams() {
       if (abandon) {
@@ -3469,7 +3478,7 @@
     function maybeRebuffer() {
       if (!isLiveKind() || hold || v.seeking || v.currentTime < 0.5 || v.paused) return;
       v.pause();
-      whenBuffered(Math.max(2, Math.min(liveBuffer() / 2, 6)), 15e3, () => v.play().catch(() => {
+      whenBuffered(Math.max(listener.bufferSec ? 1 : 2, Math.min(bufSec() / 2, 6)), 15e3, () => v.play().catch(() => {
       }));
     }
     return {
@@ -3497,8 +3506,8 @@
                 levelLoadingMaxRetry: 1,
                 fragLoadingTimeOut: 15e3,
                 fragLoadingMaxRetry: 2,
-                liveSyncDuration: Math.max(liveBuffer(), 3),
-                liveMaxLatencyDuration: liveBuffer() * 3 + 12,
+                liveSyncDuration: Math.max(bufSec(), listener.fast ? 2 : 3),
+                liveMaxLatencyDuration: bufSec() * 3 + 12,
                 maxBufferLength: 40,
                 backBufferLength: 30,
                 lowLatencyMode: false,
@@ -3522,7 +3531,7 @@
               ts = mpegts.createPlayer({ type: "mpegts", isLive: true, url: source }, {
                 enableWorker: false,
                 enableStashBuffer: true,
-                stashInitialSize: 1024 * 1024,
+                stashInitialSize: listener.fast ? 128 * 1024 : 1024 * 1024,
                 // read ahead in big gulps
                 liveBufferLatencyChasing: false,
                 // chasing the live edge is what caused the stutter
@@ -3555,7 +3564,7 @@
           return;
         }
         listener.onBuffering(true);
-        whenBuffered(liveBuffer(), 2e4, go);
+        whenBuffered(bufSec(), listener.waitMs || 2e4, go);
       },
       pause() {
         clearInterval(hold);
@@ -5615,6 +5624,62 @@
       }
     };
   }
+  // A vertical choice card (same look as the split-screen cards): Up/Down to move, OK to choose, Back to close.
+  function zvMenu(parent, title, items, sel, onPick, onCancel) {
+    zqCss();
+    const born = Date.now();
+    const wrap = h("div", "zq-ask", parent);
+    const card = h("div", "zq-card", wrap);
+    card.style.minWidth = "820px";
+    h("div", "zq-title", card).textContent = title;
+    const els = items.map((it) => {
+      const r = h("div", "zq-row", card);
+      r.textContent = it.label;
+      return r;
+    });
+    let at = Math.max(0, Math.min(items.length - 1, sel || 0));
+    function paint() {
+      els.forEach((r, i) => toggleClass(r, "on", i === at));
+    }
+    paint();
+    function close() {
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+    }
+    els.forEach((r, i) => {
+      r.addEventListener("click", (e) => {
+        e.stopPropagation();
+        at = i;
+        close();
+        onPick(i);
+      });
+    });
+    return {
+      close,
+      key(action) {
+        switch (action) {
+          case "up":
+            at = Math.max(0, at - 1);
+            paint();
+            break;
+          case "down":
+            at = Math.min(items.length - 1, at + 1);
+            paint();
+            break;
+          case "enter":
+            if (Date.now() - born < 350) break;
+            close();
+            onPick(at);
+            break;
+          case "back":
+          case "stop":
+            close();
+            onCancel();
+            break;
+        }
+        return true;
+      }
+    };
+  }
   // "How many squares?" Opens over the channel that is playing, so Back returns to it untouched.
   function QuadChooser(parent, onPick, onCancel) {
     const counts = [2, 3, 4];
@@ -5676,7 +5741,7 @@
     const tiles = [];
     for (let i = 0; i < count; i++) {
       const el = h("div", "zq-tile", el3);
-      tiles.push({ el, msg: h("div", "zq-msg", el), b: null, gen: 0, retries: 0, a: null });
+      tiles.push({ el, msg: h("div", "zq-msg", el), b: null, gen: 0, retries: 0, ci: 0, a: null });
     }
     // The channel being watched always takes the first square; the others start empty.
     function profId(s) {
@@ -5776,16 +5841,19 @@
     function emptyTile(t) {
       say(t, "+", true);
     }
+    function shortWhy(why) {
+      return String(why || "").replace(/^stream error:\s*/i, "").replace(/(video error (3|4))/i, "$1 (decoder/format)").slice(0, 70);
+    }
     function retryLater(t, my, why) {
       if (!alive || my !== t.gen) return;
       warn("split screen, square " + (tiles.indexOf(t) + 1) + ": " + why);
-      if (t.retries < 2) {
+      if (t.retries < 1) {
         t.retries++;
         say(t, "\u2026");
         setTimeout(() => {
           if (alive && my === t.gen) startTile(t);
-        }, 3e3);
-      } else say(t, "Stream unavailable");
+        }, 800);
+      } else say(t, "Stream unavailable" + (why ? " \u00B7 " + shortWhy(why) : ""));
     }
     function startTile(t) {
       const a = t.a;
@@ -5808,30 +5876,71 @@
         if (!alive || my !== t.gen) return;
         const part = full && full.Media && full.Media[0] && full.Media[0].Part && full.Media[0].Part[0];
         if (!part) throw new Error("No stream");
-        const b = videoBackend(t.el, {
-          onTime() {
-          },
-          onBuffering() {
-          },
-          onEnd() {
-            retryLater(t, my, "stream ended");
-          },
-          onError(m) {
-            retryLater(t, my, m || "stream error");
-          }
-        });
-        t.b = b;
-        b.open(server.url(part.key), { format: part.format });
-        return b.prepare().then(() => {
-          if (!alive || my !== t.gen) return;
-          applyAudio();
-          b.play();
-          say(t, "");
-          t.retries = 0;
-        });
+        // Same as the normal player: if the provider refuses one format (ts / m3u8 / plain) try the next one.
+        const cands = [part].concat(part.alt || []);
+        tryFormat(t, my, server, cands, Math.min(t.ci || 0, cands.length - 1));
       }).catch((e) => {
         if (alive && my === t.gen) retryLater(t, my, e && e.message ? e.message : "could not start");
       });
+    }
+    // One attempt with one stream format. It must show a picture within 3 seconds, else the next format is tried.
+    function tryFormat(t, my, server, cands, i) {
+      if (!alive || my !== t.gen) return;
+      const c = cands[i];
+      let state = "trying";
+      let b = null;
+      let dl = 0;
+      const giveUp = (why) => {
+        if (state !== "trying") return;
+        state = "failed";
+        clearTimeout(dl);
+        if (b) {
+          try {
+            b.destroy();
+          } catch (e) {
+          }
+          if (t.b === b) t.b = null;
+        }
+        if (!alive || my !== t.gen) return;
+        if (i + 1 < cands.length) {
+          warn("split screen, square " + (tiles.indexOf(t) + 1) + ": " + why + ", trying " + (cands[i + 1].label || "next format"));
+          tryFormat(t, my, server, cands, i + 1);
+        } else retryLater(t, my, why + (cands.length > 1 ? " (tried " + cands.map((x) => x.label || "?").join(", ") + ")" : ""));
+      };
+      const lost = (why) => {
+        if (state === "playing") {
+          state = "ended";
+          retryLater(t, my, why);
+        } else giveUp(why);
+      };
+      dl = setTimeout(() => giveUp("no picture after 3 s"), 3e3);
+      b = videoBackend(t.el, {
+        bufferSec: 1,
+        waitMs: 1200,
+        fast: true,
+        onTime() {
+        },
+        onBuffering() {
+        },
+        onEnd() {
+          lost("stream ended");
+        },
+        onError(m) {
+          lost(m || "stream error");
+        }
+      });
+      t.b = b;
+      b.open(server.url(c.key), { format: c.format });
+      b.prepare().then(() => {
+        if (state !== "trying" || !alive || my !== t.gen) return;
+        state = "playing";
+        clearTimeout(dl);
+        t.ci = i;
+        applyAudio();
+        b.play();
+        say(t, "");
+        t.retries = 0;
+      }, (e) => giveUp(e && e.message ? e.message : "could not start"));
     }
     // ---- choosing a channel for a square: provider > bouquet > channel
     function renderPick() {
@@ -5926,6 +6035,7 @@
         t.a = { pid: k.pid, ratingKey: ch.ratingKey, title: ch.title };
         closePick();
         t.retries = 0;
+        t.ci = 0;
         startTile(t);
       }
     }
@@ -9188,9 +9298,14 @@
     const list = h("div", "servers-list", view);
     let rows = [];
     let index = 0;
+    let menu = null;
+    let refreshing = false;
     function currentId() {
       const s = session.server && session.server.saved;
       return s ? [s.kind || "plex", s.uri, s.user || s.mac || ""].join("|") : "";
+    }
+    function nameOf(p) {
+      return provName(p, Math.max(0, profiles().findIndex((x) => x.id === p.id)));
     }
     function build() {
       while (list.firstChild) list.removeChild(list.firstChild);
@@ -9205,7 +9320,7 @@
       items.forEach((p, pi) => {
         const b = h("div", "btn btn-wide", list);
         h("span", "", b).textContent = provName(p, pi);
-        h("small", "", b).textContent = p.id === now ? "\u25CF  In use now   \xB7   B to rename" : "OK to switch   \xB7   B rename   \xB7   Y remove";
+        h("small", "", b).textContent = p.id === now ? "\u25CF  In use now   \xB7   OK for options" : "OK for options   (switch \xB7 refresh \xB7 rename \xB7 delete)";
         toggleClass(b, "current", p.id === now);
         rows.push({ el: b, p });
       });
@@ -9227,6 +9342,94 @@
       rows.forEach((r, i) => toggleClass(r.el, "focus", i === index));
       list.style.transform = "translateY(" + -Math.max(0, index - 5) * ROW + "px)";
     }
+    // OK on a provider: a card with what can be done with it (the remote has no colour keys).
+    function openOptions(p) {
+      if (menu || !p) return;
+      const nm = nameOf(p);
+      const isCur = p.id === currentId();
+      const managed = !!(p.saved && p.saved.managed);
+      const opts = [];
+      if (!isCur) opts.push({ label: "Switch to this provider", run: () => {
+        activateProfile(p);
+        toast("Switched to " + nm);
+        onDone();
+      } });
+      opts.push({ label: "Refresh channels", run: () => refreshProvider(p) });
+      opts.push({ label: "Rename", run: () => {
+        if (managed) toast("This service is managed by your provider");
+        else push(RenameScreen({ p, idx: Math.max(0, profiles().findIndex((x) => x.id === p.id)), onDone: () => back() }));
+      } });
+      opts.push({ label: "Delete provider", run: () => {
+        if (managed) toast("This service is managed by your provider");
+        else confirmDelete(p);
+      } });
+      opts.push({ label: "Back", run: () => {
+      } });
+      menu = zvMenu(el3, nm, opts, 0, (i) => {
+        menu = null;
+        opts[i].run();
+      }, () => {
+        menu = null;
+      });
+    }
+    function confirmDelete(p) {
+      if (menu) return;
+      const nm = nameOf(p);
+      menu = zvMenu(el3, "Delete \u201C" + nm + "\u201D?", [{ label: "No, keep it" }, { label: "Yes, delete" }], 0, (i) => {
+        menu = null;
+        if (i === 1) removeProvider(p);
+      }, () => {
+        menu = null;
+      });
+    }
+    function removeProvider(p) {
+      const wasCur = p.id === currentId();
+      forgetProfile(p.id);
+      let next = null;
+      if (wasCur) {
+        next = profiles().find((x) => x.saved && !(policyLocked() && !x.saved.managed)) || null;
+        if (next) activateProfile(next);
+        else signOut();
+      }
+      build();
+      toast(wasCur && next ? "Deleted \xB7 now using " + nameOf(next) : "Deleted");
+      if (wasCur) onDone();
+    }
+    // Forget what was loaded from this provider and load its channel list again.
+    function refreshProvider(p) {
+      if (refreshing) {
+        toast("Already refreshing\u2026");
+        return;
+      }
+      const nm = nameOf(p);
+      const s = p.saved || {};
+      const cur = p.id === currentId() ? session.server : null;
+      if (s.kind !== "xtream" && s.kind !== "stalker") {
+        if (cur) cur.invalidate();
+        set("homeCache", void 0);
+        toast(nm + " refreshed");
+        return;
+      }
+      let srv;
+      try {
+        if (!cur && policyLocked() && !s.managed) throw new Error(policyMsg());
+        srv = cur || makeServer(s);
+        if (srv.refresh) srv.refresh();
+      } catch (e) {
+        toast(e && e.message ? e.message : String(e));
+        return;
+      }
+      refreshing = true;
+      toast("Refreshing " + nm + "\u2026", 3e4);
+      srv.raw("live").then((all) => {
+        refreshing = false;
+        set("homeCache", void 0);
+        toast(nm + " updated \xB7 " + (all ? all.length : 0) + " channels", 5e3);
+      }, (e) => {
+        refreshing = false;
+        toast(nm + ": " + (e && e.message ? e.message : "could not refresh"), 6e3);
+      });
+    }
     function pick() {
       const r = rows[index];
       if (!r) return;
@@ -9234,10 +9437,7 @@
         push(AddServer({ onDone, welcome: true }));
         return;
       }
-      const nm2 = provName(r.p, Math.max(0, profiles().findIndex((x) => x.id === r.p.id)));
-      activateProfile(r.p);
-      toast("Switched to " + nm2);
-      onDone();
+      openOptions(r.p);
     }
     build();
     return {
@@ -9248,6 +9448,7 @@
         build();
       },
       onKey(a) {
+        if (menu) return menu.key(a);
         if (a === "up") {
           index = Math.max(0, index - 1);
           render();
@@ -9262,24 +9463,17 @@
           pick();
           return true;
         }
+        // Colour keys, where a remote has them, are shortcuts to the same card / confirmation.
         if (a === "blue" || a === "menu") {
           const r = rows[index];
-          if (r && r.p) {
-            if (r.p.saved && r.p.saved.managed) toast("This service is managed by your provider");
-            else push(RenameScreen({ p: r.p, idx: Math.max(0, profiles().findIndex((x) => x.id === r.p.id)), onDone: () => back() }));
-          }
+          if (r && r.p) openOptions(r.p);
           return true;
         }
         if (a === "yellow") {
           const r = rows[index];
-          if (r && r.p && r.p.saved && r.p.saved.managed) {
-            toast("This service is managed by your provider");
-            return true;
-          }
           if (r && r.p) {
-            forgetProfile(r.p.id);
-            build();
-            toast("Removed");
+            if (r.p.saved && r.p.saved.managed) toast("This service is managed by your provider");
+            else confirmDelete(r.p);
           }
           return true;
         }
@@ -9360,7 +9554,7 @@
     const i = list.findIndex((x) => x[key] === current);
     return list[(i + 1) % list.length][key] === void 0 ? fallback : list[(i + 1) % list.length][key];
   }
-  var VPN_PKG = "io.privado.android";
+  var VPN_PKG = "ch.protonvpn.android";
   function vpnInstalled() {
     try {
       return !!(window.ZenPlayer && window.ZenPlayer.hasPackage && window.ZenPlayer.hasPackage(VPN_PKG));
@@ -9370,17 +9564,18 @@
   }
   function VpnScreen() {
     const el3 = h("div", "screen settings");
-    h("h1", "settings-title", el3).textContent = "VPN";
+    h("h1", "settings-title", el3).textContent = "Free VPN";
     const view = h("div", "settings-view", el3);
     const list = h("div", "settings-list", view);
     const canCheck = !!(window.ZenPlayer && window.ZenPlayer.hasPackage);
     const rows = [
-      { label: "PrivadoVPN app", value: canCheck ? vpnInstalled() ? "Installed" : "Not installed on this device" : "Install it on your device or computer" },
-      { label: "Step 1", value: "Open PrivadoVPN and sign in with your subscription" },
-      { label: "Step 2", value: "Choose a country and press Connect" },
+      { label: "Free VPN", value: "Proton VPN Free: unlimited data, no ads, no card needed" },
+      { label: "On this device", value: canCheck ? vpnInstalled() ? "Proton VPN detected" : "Proton VPN not detected" : "Install it on your device or computer" },
+      { label: "Step 1", value: "On the TV open Google Play, search for Proton VPN and install it" },
+      { label: "Step 2", value: "Open Proton VPN, sign in with a free account and press Quick Connect" },
       { label: "Step 3", value: "Come back to Zen Pro. Channels and movies now go through the VPN" },
-      { label: "Download", value: "privadovpn.com/software" },
-      { label: "Why not inside Zen Pro?", value: "A VPN needs its own system permission and engine. Use the provider's app." }
+      { label: "Good to know", value: "The free plan chooses the server for you and works on one device at a time" },
+      { label: "Why not inside Zen Pro?", value: "A VPN needs its own system permission and engine, so it runs as its own app" }
     ];
     let index = 0;
     rows.forEach((it) => {
@@ -9447,7 +9642,7 @@
           toast("Player: " + engineLabel(nx) + (EXT_PLAYERS[nx] ? ". The stream opens in that app; the built-in channel list is not shown." : ". Applies to the next video."), 6e3);
           build();
         }, action: "Change" }] : [],
-        { label: "VPN", value: "Use PrivadoVPN with Zen Pro", run: () => push(VpnScreen()), action: "Open" },
+        { label: "VPN", value: "Free VPN: Proton VPN", run: () => push(VpnScreen()), action: "Open" },
         ...updateItems(),
         ...get("act") && get("act").support ? [{ label: "Support", value: get("act").support, run: () => toast(get("act").support, 6e3) }] : [],
         // More buffer = fewer stutters on a slow or uneven connection, at the cost of a longer start.

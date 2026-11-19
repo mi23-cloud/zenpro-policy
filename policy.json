@@ -7,10 +7,10 @@
   "support": "",
   "activationServer": "",
   "update": {
-    "version": "1.3.11",
+    "version": "1.3.12",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "HmEdSLvuf5W1Rwa1deda+Tw9x2QM9H953aIs7WBQ9i+baQOauaP68YUZR6PXyuhOJZPjWxD30DQv2zsvV0eeCg==",
-    "notes": "ضغطة OK مطوّلة 3 ثوانٍ على القناة في قائمة Live TV تضيفها إلى المفضلة أو تحذفها (بديل لزر المفضلة)",
-    "size": 432253
+    "sig": "",
+    "notes": "قائمة خيارات لكل مزوّد (تحديث القنوات، حذف مع تأكيد، إعادة تسمية) بزر OK فقط، تسريع تقسيم الشاشة مع تجربة صيغ البث البديلة، وشاشة VPN مجاني جديدة",
+    "size": 439240
   }
 }
