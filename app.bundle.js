@@ -121,7 +121,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.9";
+  var VERSION = "1.3.11";
 
   // app/js/router.js
   var router_exports = {};
@@ -1168,7 +1168,7 @@
         try {
           res = yield fetch(target, { signal: ctl ? ctl.signal : void 0 });
         } catch (e) {
-          throw new Error("Can't reach the server.");
+          throw new Error("Can't reach the provider.");
         }
         if (!res.ok) throw new Error("HTTP " + res.status);
         return yield res.text();
@@ -1201,10 +1201,10 @@
         try {
           res = yield fetch(target, { headers: hdr, signal: ctl ? ctl.signal : void 0 });
         } catch (e) {
-          throw new Error("Can't reach the server. Check the address and your network.");
+          throw new Error("Can't reach the provider. Check the address and your network.");
         }
         if (!res.ok) {
-          const e = new Error("The server answered HTTP " + res.status);
+          const e = new Error("The provider answered HTTP " + res.status);
           e.status = res.status;
           throw e;
         }
@@ -1212,7 +1212,7 @@
         try {
           return JSON.parse(text);
         } catch (e) {
-          throw new Error("The server did not answer with data. Is the address right?");
+          throw new Error("The provider did not answer with data. Is the address right?");
         }
       } finally {
         clearTimeout(timer4);
@@ -1237,7 +1237,7 @@
         throw e;
       }
       const info = j && j.user_info;
-      if (!info) throw new Error("This does not look like an Xtream server.");
+      if (!info) throw new Error("This does not look like a valid provider.");
       if (Number(info.auth) === 0) throw new Error("Wrong username or password.");
       if (info.status && info.status !== "Active") throw new Error("The account is " + String(info.status).toLowerCase() + ".");
       const host = uri.replace(/^https?:\/\//i, "");
@@ -2128,7 +2128,7 @@
       toast(policyMsg(), 8e3);
       return;
     }
-    if (p.saved.kind === "xtream" || p.saved.kind === "stalker") useIptv(p.saved, p.label.split(" \xB7 ")[0]);
+    if (p.saved.kind === "xtream" || p.saved.kind === "stalker") useIptv(p.saved, p.saved.pname || "Provider TV");
     else useManualServer({ uri: p.saved.uri, token: p.saved.token, name: p.saved.name });
   }
 
@@ -3030,7 +3030,7 @@
   // app/js/screens/library.js
   var PAGE = 140;
   var SORTS2 = [
-    { id: "server", label: "Server order" },
+    { id: "server", label: "Provider order" },
     { id: "titleSort", label: "A\u2013Z" },
     { id: "addedAt:desc", label: "Recently added" },
     { id: "originallyAvailableAt:desc", label: "Release date" },
@@ -3101,7 +3101,7 @@
             grid.refresh();
           }
           if (p === 0 && res.items[0]) {
-            setText(sortEl, res.items[0].type === "category" ? "Server order" : "Sorted by " + SORTS2[sortIndex].label);
+            setText(sortEl, res.items[0].type === "category" ? "Provider order" : "Sorted by " + SORTS2[sortIndex].label);
             grid.onFocus(grid.current());
           }
         } catch (e) {
@@ -5536,61 +5536,74 @@
   }
 
   // ===================================================================================
-  // Split screen: two, three or four live channels at once. Each square can use any saved IPTV server.
+  // Split screen: two, three or four live channels at once. Each square can use any saved provider.
   // Uses the web player (one <video> per square); the single native player is stopped while this screen is open.
+  // Styled with the app's own design tokens, so it matches the rest of Zen Pro.
   // ===================================================================================
   function zqCss() {
     if (document.getElementById("zp-quad-css")) return;
     const st = document.createElement("style");
     st.id = "zp-quad-css";
-    st.textContent = ".zq{background:#000;color:#fff}" + ".zq-tile{position:absolute;overflow:hidden;background:#05090d;border:3px solid #16222c;border-radius:8px;box-sizing:border-box}" + ".zq-tile.focus{border-color:#2fe0c4}" + ".zq-tile.zoom{border-radius:0;border-color:transparent;z-index:5}" + ".zq-tile video{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;background:#000}" + ".zq-msg{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:30px;color:#7f93a3;text-align:center;padding:20px;z-index:1}" + ".zq-msg.big{font-size:96px;color:#3b5163}" + ".zq-msg.off{display:none}" + ".zq-pick{position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center}" + ".zq-pick.hidden{display:none}" + ".zq-box{width:1100px;background:#0e1b26;border:2px solid #2fe0c4;border-radius:14px;padding:24px 28px;box-sizing:border-box}" + ".zq-pt{font-size:32px;margin-bottom:14px;color:#2fe0c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" + ".zq-pr{font-size:30px;padding:9px 16px;border-radius:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" + ".zq-pr.on{background:#2fe0c4;color:#04201b}" + ".zq-pp{font-size:24px;color:#9fb3c2;margin-top:12px;text-align:right}" + ".zq-ask{position:absolute;left:0;top:0;width:100%;height:100%;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}" + ".zq-askbox{background:#0e1b26;border:2px solid #2fe0c4;border-radius:16px;padding:30px 40px;text-align:center}" + ".zq-askt{font-size:36px;margin-bottom:24px;color:#fff}" + ".zq-askr{display:flex;gap:22px}" + ".zq-askb{font-size:34px;padding:18px 34px;border-radius:12px;background:#16222c;color:#cfe0ec;min-width:200px}" + ".zq-askb.on{background:#2fe0c4;color:#04201b}";
+    st.textContent = ".zq{background:#000}" + ".zq-tile{position:absolute;overflow:hidden;background:#07110f;border:3px solid var(--glass-line);border-radius:18px;box-sizing:border-box}" + ".zq-tile.focus{border-color:var(--accent)}" + ".zq-tile.zoom{border-radius:0;border-color:transparent;z-index:5}" + ".zq-tile video{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;background:#000}" + ".zq-msg{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font:600 30px var(--body);color:var(--dim);text-align:center;padding:20px;z-index:1}" + ".zq-msg.big{font:300 120px var(--display);color:rgba(234,243,239,.2)}" + ".zq-msg.off{display:none}" + ".zq-ask{position:absolute;left:0;top:0;width:100%;height:100%;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(3,8,7,.66)}" + ".zq-ask.hidden{display:none}" + ".zq-card{box-sizing:border-box;padding:46px 54px;border-radius:40px;background:#0d1a17;border:1px solid var(--glass-line)}" + ".zq-wide{width:1100px}" + ".zq-title{font:700 46px/1.1 var(--display);margin-bottom:32px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" + ".zq-opts{display:flex;gap:26px;justify-content:center}" + ".zq-opt{min-width:250px;box-sizing:border-box;text-align:center;padding:28px 30px 24px;border-radius:24px;background:rgba(234,243,239,.1);font:700 32px var(--body)}" + ".zq-opt.on{background:var(--accent);color:#06130F}" + ".zq-ico{position:relative;width:104px;height:60px;margin:0 auto 18px}" + ".zq-ico i{position:absolute;background:currentColor;border-radius:5px;opacity:.92}" + ".zq-row{font:600 32px var(--body);padding:16px 28px;border-radius:20px;background:rgba(234,243,239,.08);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" + ".zq-row.on{background:var(--accent);color:#06130F}" + ".zq-pos{font:600 26px var(--body);color:var(--dim);margin-top:14px;text-align:right}";
     document.head.appendChild(st);
   }
-  // "How many squares?" choice. Opens over the channel that is playing, so Back returns to it untouched.
-  function QuadChooser(parent, onPick, onCancel) {
+  // A tiny picture of the layout: 2 side by side, 3 (two over one), 4 (2 x 2).
+  function zqIcon(parent, n) {
+    const ico = h("div", "zq-ico", parent);
+    const cells = n === 2 ? [[0, 12, 46, 76], [54, 12, 46, 76]] : n === 3 ? [[0, 0, 46, 46], [54, 0, 46, 46], [27, 54, 46, 46]] : [[0, 0, 46, 46], [54, 0, 46, 46], [0, 54, 46, 46], [54, 54, 46, 46]];
+    cells.forEach((c) => {
+      const b = h("i", "", ico);
+      b.style.left = c[0] + "%";
+      b.style.top = c[1] + "%";
+      b.style.width = c[2] + "%";
+      b.style.height = c[3] + "%";
+    });
+  }
+  // A small choice card (same look as the app's update dialog). Returns an object whose key() the owner calls.
+  function zqMenu(parent, title, items, sel, onPick, onCancel, digits) {
     zqCss();
     const wrap = h("div", "zq-ask", parent);
-    const boxEl = h("div", "zq-askbox", wrap);
-    h("div", "zq-askt", boxEl).textContent = "Split screen";
-    const row = h("div", "zq-askr", boxEl);
-    const counts = [2, 3, 4];
-    let sel = Math.max(0, counts.indexOf(Number(get("quadN", 4))));
-    const btns = counts.map((n) => {
-      const b = h("div", "zq-askb", row);
-      b.textContent = n + " squares";
+    const card = h("div", "zq-card", wrap);
+    h("div", "zq-title", card).textContent = title;
+    const row = h("div", "zq-opts", card);
+    const els = items.map((it) => {
+      const b = h("div", "zq-opt", row);
+      if (it.icon) zqIcon(b, it.icon);
+      h("div", "", b).textContent = it.label;
       return b;
     });
+    let at = Math.max(0, Math.min(items.length - 1, sel || 0));
     function paint() {
-      btns.forEach((b, i) => {
-        b.className = "zq-askb" + (i === sel ? " on" : "");
-      });
+      els.forEach((b, i) => toggleClass(b, "on", i === at));
     }
     paint();
     function close() {
       if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
     }
-    function choose(n) {
-      close();
-      set("quadN", n);
-      onPick(n);
-    }
     return {
+      close,
       key(action) {
-        if (/^d[234]$/.test(action)) {
-          choose(Number(action[1]));
+        const m = digits ? /^d(\d)$/.exec(action) : null;
+        if (m) {
+          const i = items.findIndex((it) => it.icon === Number(m[1]));
+          if (i >= 0) {
+            close();
+            onPick(i);
+          }
           return true;
         }
         switch (action) {
           case "left":
-            sel = Math.max(0, sel - 1);
+            at = Math.max(0, at - 1);
             paint();
             break;
           case "right":
-            sel = Math.min(counts.length - 1, sel + 1);
+            at = Math.min(items.length - 1, at + 1);
             paint();
             break;
           case "enter":
-            choose(counts[sel]);
+            close();
+            onPick(at);
             break;
           case "back":
           case "stop":
@@ -5602,55 +5615,105 @@
       }
     };
   }
+  // "How many squares?" Opens over the channel that is playing, so Back returns to it untouched.
+  function QuadChooser(parent, onPick, onCancel) {
+    const counts = [2, 3, 4];
+    const sel = Math.max(0, counts.indexOf(Number(get("quadN", 4))));
+    return zqMenu(parent, "Split screen", counts.map((n) => ({ label: n + " squares", icon: n })), sel, (i) => {
+      set("quadN", counts[i]);
+      onPick(counts[i]);
+    }, onCancel, true);
+  }
+  // Tells a short press from a long one. Uses key-down repeats and key-up; if a remote sends neither repeats nor
+  // key-up the press is treated as short after a moment.
+  function zqHold(onShort, onLong, ms, onEnd) {
+    let t0 = 0, long = false, rep = false, arm = true, timer = 0, gap = 0;
+    function finish() {
+      clearTimeout(timer);
+      clearTimeout(gap);
+      const was = t0, wasLong = long, armed = arm;
+      t0 = 0;
+      long = false;
+      rep = false;
+      if (was && !wasLong && armed) onShort();
+      if (was && onEnd) onEnd();
+    }
+    return {
+      active: () => !!t0,
+      down(armed) {
+        if (!t0) {
+          t0 = Date.now();
+          long = false;
+          rep = false;
+          arm = armed !== false;
+          timer = setTimeout(() => {
+            if (t0 && !long && arm) {
+              long = true;
+              onLong();
+            }
+          }, ms);
+        } else rep = true;
+        clearTimeout(gap);
+        gap = setTimeout(finish, rep ? 450 : 750);
+      },
+      up() {
+        if (t0) finish();
+      },
+      cancel() {
+        clearTimeout(timer);
+        clearTimeout(gap);
+        t0 = 0;
+        long = false;
+        rep = false;
+      }
+    };
+  }
   function QuadScreen(opts) {
     opts = opts || {};
     zqCss();
-    const n = Math.max(2, Math.min(4, Number(opts.count) || Number(get("quadN", 4)) || 4));
+    const count = Math.max(2, Math.min(4, Number(opts.count) || Number(get("quadN", 4)) || 4));
     const el3 = h("div", "screen zq");
-    const pick = h("div", "zq-pick hidden", el3);
-    const box = h("div", "zq-box", pick);
-    const pTitle = h("div", "zq-pt", box);
-    const ROWS = 10;
-    const pRows = [];
-    for (let i = 0; i < ROWS; i++) pRows.push(h("div", "zq-pr", box));
-    const pPos = h("div", "zq-pp", box);
+    const tiles = [];
+    for (let i = 0; i < count; i++) {
+      const el = h("div", "zq-tile", el3);
+      tiles.push({ el, msg: h("div", "zq-msg", el), b: null, gen: 0, retries: 0, a: null });
+    }
+    // The channel being watched always takes the first square; the others start empty.
     function profId(s) {
       return s ? [s.kind || "plex", s.uri, s.user || s.mac || ""].join("|") : "";
     }
-    let assign = [];
-    try {
-      const saved2 = get("quad", []);
-      for (let i = 0; i < 4; i++) assign.push(saved2 && saved2[i] && saved2[i].ratingKey ? saved2[i] : null);
-    } catch (e) {
-      assign = [null, null, null, null];
+    if (opts.current && opts.current.ratingKey && session.server) {
+      tiles[0].a = { pid: profId(session.server.saved), ratingKey: opts.current.ratingKey, title: opts.current.title || "" };
     }
-    if (!assign.slice(0, n).some(Boolean) && opts.current && opts.current.ratingKey && session.server) {
-      assign[0] = { pid: profId(session.server.saved), pname: "", ratingKey: opts.current.ratingKey, title: opts.current.title || "", cat: "" };
-    }
-    const tiles = [];
-    for (let i = 0; i < n; i++) {
-      const t = h("div", "zq-tile", el3);
-      const msg = h("div", "zq-msg", t);
-      tiles.push({ el: t, msg, b: null, gen: 0, retries: 0 });
-    }
+    const pick = h("div", "zq-ask hidden", el3);
+    const card = h("div", "zq-card zq-wide", pick);
+    const pTitle = h("div", "zq-title", card);
+    const ROWS = 9;
+    const pRows = [];
+    for (let i = 0; i < ROWS; i++) pRows.push(h("div", "zq-row", card));
+    const pPos = h("div", "zq-pos", card);
     let alive = true;
     let begun = false;
     let focus = 0;
     let lastTop = 0;
     let zoomOn = false;
     let pk = null;
+    let menu = null;
     let geo = [];
+    let lastEnterAt = 0;
+    let swallow = false;
     const servers = {};
     function serverFor(pid) {
       if (servers[pid]) return servers[pid];
       if (session.server && profId(session.server.saved) === pid) return servers[pid] = session.server;
       const p = profiles().find((x) => x.id === pid);
-      if (!p) throw new Error("Server not found");
+      if (!p) throw new Error("Provider not found");
       if (policyLocked() && !p.saved.managed) throw new Error(policyMsg());
       return servers[pid] = makeServer(p.saved);
     }
     // Squares are always 16:9 and centred, so the picture fills each square.
     function layout() {
+      const n = tiles.length;
       const W = el3.clientWidth || 1920, H = el3.clientHeight || 1080;
       const g = 8;
       let cw = Math.floor((W - 3 * g) / 2);
@@ -5665,7 +5728,6 @@
       const r0 = rows === 1 ? Math.round((H - ch) / 2) : Math.round((H - (2 * ch + g)) / 2), r1 = r0 + ch + g;
       const pos = n === 2 ? [[x0, r0], [x1, r0]] : n === 3 ? [[x0, r0], [x1, r0], [xc, r1]] : [[x0, r0], [x1, r0], [x0, r1], [x1, r1]];
       geo = pos.map((p) => ({ l: p[0], t: p[1], w: cw, h: ch }));
-      return { W, H };
     }
     function paintTile(i) {
       const t = tiles[i];
@@ -5686,27 +5748,22 @@
       s.visibility = zoomOn && i !== focus ? "hidden" : "";
     }
     function paintAll() {
-      for (let i = 0; i < n; i++) paintTile(i);
+      for (let i = 0; i < tiles.length; i++) paintTile(i);
       applyAudio();
     }
-    function say(i, text, big) {
-      const t = tiles[i];
+    function say(t, text, big) {
       setText(t.msg, text || "");
       toggleClass(t.msg, "off", !text);
       toggleClass(t.msg, "big", !!big);
     }
-    function videoOf(i) {
-      return tiles[i].el.querySelector("video");
-    }
     // Sound follows the selected square; all the others are muted.
     function applyAudio() {
-      for (let i = 0; i < n; i++) {
-        const v = videoOf(i);
+      tiles.forEach((t, i) => {
+        const v = t.el.querySelector("video");
         if (v) v.muted = i !== focus;
-      }
+      });
     }
-    function stopTile(i) {
-      const t = tiles[i];
+    function stopTile(t) {
       t.gen++;
       if (t.b) {
         try {
@@ -5716,37 +5773,35 @@
         t.b = null;
       }
     }
-    function emptyTile(i) {
-      say(i, "+", true);
+    function emptyTile(t) {
+      say(t, "+", true);
     }
-    function retryLater(i, my, why) {
-      const t = tiles[i];
+    function retryLater(t, my, why) {
       if (!alive || my !== t.gen) return;
-      warn("split screen, square " + (i + 1) + ": " + why);
+      warn("split screen, square " + (tiles.indexOf(t) + 1) + ": " + why);
       if (t.retries < 2) {
         t.retries++;
-        say(i, "\u2026");
+        say(t, "\u2026");
         setTimeout(() => {
-          if (alive && my === t.gen) startTile(i);
+          if (alive && my === t.gen) startTile(t);
         }, 3e3);
-      } else say(i, "Stream unavailable");
+      } else say(t, "Stream unavailable");
     }
-    function startTile(i) {
-      const t = tiles[i];
-      const a = assign[i];
-      stopTile(i);
+    function startTile(t) {
+      const a = t.a;
+      stopTile(t);
       if (!a) {
-        emptyTile(i);
+        emptyTile(t);
         return;
       }
       const my = t.gen;
-      say(i, "\u2026");
+      say(t, "\u2026");
       let server;
       try {
         server = serverFor(a.pid);
       } catch (e) {
-        say(i, "Server unavailable");
-        warn("split screen, square " + (i + 1) + ": " + (e.message || e));
+        say(t, "Provider unavailable");
+        warn("split screen, square " + (tiles.indexOf(t) + 1) + ": " + (e.message || e));
         return;
       }
       server.metadata(a.ratingKey).then((full) => {
@@ -5759,10 +5814,10 @@
           onBuffering() {
           },
           onEnd() {
-            retryLater(i, my, "stream ended");
+            retryLater(t, my, "stream ended");
           },
           onError(m) {
-            retryLater(i, my, m || "stream error");
+            retryLater(t, my, m || "stream error");
           }
         });
         t.b = b;
@@ -5771,13 +5826,14 @@
           if (!alive || my !== t.gen) return;
           applyAudio();
           b.play();
-          say(i, "");
+          say(t, "");
           t.retries = 0;
         });
       }).catch((e) => {
-        if (alive && my === t.gen) retryLater(i, my, e && e.message ? e.message : "could not start");
+        if (alive && my === t.gen) retryLater(t, my, e && e.message ? e.message : "could not start");
       });
     }
+    // ---- choosing a channel for a square: provider > bouquet > channel
     function renderPick() {
       const k = pk;
       if (!k) return;
@@ -5793,7 +5849,7 @@
         }
         r.style.display = "";
         r.textContent = (k.step === "chan" ? idx + 1 + "   " : "") + it.label;
-        r.className = "zq-pr" + (idx === k.sel ? " on" : "");
+        r.className = "zq-row" + (idx === k.sel ? " on" : "");
       }
       setText(pPos, k.list.length ? k.sel + 1 + " / " + k.list.length : k.loading ? "Loading\u2026" : "Empty");
     }
@@ -5801,16 +5857,19 @@
       pk = null;
       pick.classList.add("hidden");
     }
-    function openPicker(i) {
+    function openPicker(t) {
       ensureCurrentProfile();
-      const ps = profiles().filter((p) => p.saved && (p.saved.kind === "xtream" || p.saved.kind === "stalker") && !(policyLocked() && !p.saved.managed));
+      const ps = [];
+      profiles().forEach((p, idx) => {
+        if (p.saved && (p.saved.kind === "xtream" || p.saved.kind === "stalker") && !(policyLocked() && !p.saved.managed)) ps.push({ label: provName(p, idx), p });
+      });
       if (!ps.length) {
-        toast("No IPTV servers saved");
+        toast("No providers saved");
         return;
       }
-      pk = { step: "server", tile: i, list: ps.map((p) => ({ label: p.label, p })), sel: 0, title: "Square " + (i + 1) + " \u2014 choose server", prev: null };
-      if (assign[i]) {
-        const j = ps.findIndex((p) => p.id === assign[i].pid);
+      pk = { step: "server", tile: t, list: ps, sel: 0, title: "Square " + (tiles.indexOf(t) + 1) + " \u2014 choose provider", prev: null };
+      if (t.a) {
+        const j = ps.findIndex((x) => x.p.id === t.a.pid);
         if (j >= 0) pk.sel = j;
       }
       pick.classList.remove("hidden");
@@ -5829,7 +5888,7 @@
           toast(e.message || String(e));
           return;
         }
-        const nk = { step: "cat", tile: k.tile, pid: it.p.id, pname: it.p.label, server, list: [], sel: 0, title: it.p.label + " \u2014 bouquet", loading: true, prev: k };
+        const nk = { step: "cat", tile: k.tile, pid: it.p.id, pname: it.label, server, list: [], sel: 0, title: it.label + " \u2014 bouquet", loading: true, prev: k };
         pk = nk;
         renderPick();
         server.items("live", 0, 1e5).then((r) => {
@@ -5847,7 +5906,7 @@
         });
       } else if (k.step === "cat") {
         const c = it.c;
-        const nk = { step: "chan", tile: k.tile, pid: k.pid, pname: k.pname, server: k.server, cat: c.title, list: [], sel: 0, title: k.pname + " \u2014 " + c.title, loading: true, prev: k };
+        const nk = { step: "chan", tile: k.tile, pid: k.pid, pname: k.pname, server: k.server, list: [], sel: 0, title: k.pname + " \u2014 " + c.title, loading: true, prev: k };
         pk = nk;
         renderPick();
         k.server.items(c.sectionKey, 0, 1e5).then((r) => {
@@ -5863,11 +5922,11 @@
         });
       } else {
         const ch = it.ch;
-        assign[k.tile] = { pid: k.pid, pname: k.pname, ratingKey: ch.ratingKey, title: ch.title, cat: k.cat };
-        set("quad", assign);
+        const t = k.tile;
+        t.a = { pid: k.pid, ratingKey: ch.ratingKey, title: ch.title };
         closePick();
-        tiles[k.tile].retries = 0;
-        startTile(k.tile);
+        t.retries = 0;
+        startTile(t);
       }
     }
     function pickKey(action) {
@@ -5902,8 +5961,59 @@
       renderPick();
       return true;
     }
+    // ---- removing a square: the others keep playing, nothing reloads
+    function removeSquare(t) {
+      if (tiles.length <= 2) return;
+      const i = tiles.indexOf(t);
+      if (i < 0) return;
+      stopTile(t);
+      if (t.el.parentNode) t.el.parentNode.removeChild(t.el);
+      tiles.splice(i, 1);
+      if (i < focus) focus--;
+      if (focus > tiles.length - 1) focus = tiles.length - 1;
+      lastTop = Math.min(lastTop, 1);
+      zoomOn = false;
+      layout();
+      paintAll();
+    }
+    function openSquareMenu() {
+      if (pk || menu) return;
+      if (tiles.length <= 2) {
+        toast("Two squares is the minimum");
+        return;
+      }
+      const t = tiles[focus];
+      menu = zqMenu(el3, "Square " + (focus + 1), [{ label: "Remove square" }, { label: "Keep" }], 0, (i) => {
+        menu = null;
+        if (i === 0) removeSquare(t);
+      }, () => {
+        menu = null;
+      });
+    }
+    // OK: short press = choose a channel, press and hold 3 seconds = square menu.
+    const hold = zqHold(() => {
+      if (alive && !pk && !menu) openPicker(tiles[focus]);
+    }, () => {
+      if (!alive) return;
+      swallow = true;
+      openSquareMenu();
+    }, 3e3, () => {
+      swallow = false;
+    });
+    function isEnter(e) {
+      return e.keyCode === 13 || e.keyCode === 23 || e.key === "Enter";
+    }
+    function onKd(e) {
+      if (!alive || !isEnter(e)) return;
+      lastEnterAt = Date.now();
+      hold.down(!pk && !menu);
+    }
+    function onKu(e) {
+      if (isEnter(e)) hold.up();
+    }
     // Where the selection goes for each arrow, for 2, 3 (two on top, one below) and 4 squares.
     function nextFocus(f, action) {
+      const n = tiles.length;
       if (n === 2) return action === "left" ? 0 : action === "right" ? 1 : f;
       if (n === 3) {
         if (f === 2) return action === "up" ? lastTop : f;
@@ -5938,22 +6048,30 @@
         if (begun) return;
         begun = true;
         window.addEventListener("resize", onResize);
+        window.addEventListener("keydown", onKd, true);
+        window.addEventListener("keyup", onKu, true);
         layout();
         paintAll();
-        for (let i = 0; i < n; i++) {
-          if (assign[i]) setTimeout(() => {
-            if (alive) startTile(i);
-          }, i * 400);
-          else emptyTile(i);
-        }
+        tiles.forEach((t) => {
+          if (t.a) startTile(t);
+          else emptyTile(t);
+        });
       },
       destroy() {
         alive = false;
         window.removeEventListener("resize", onResize);
+        window.removeEventListener("keydown", onKd, true);
+        window.removeEventListener("keyup", onKu, true);
+        hold.cancel();
         closePick();
-        for (let i = 0; i < n; i++) stopTile(i);
+        if (menu) {
+          menu.close();
+          menu = null;
+        }
+        tiles.forEach(stopTile);
       },
       onKey(action) {
+        if (menu) return swallow ? true : menu.key(action);
         if (pk) return pickKey(action);
         switch (action) {
           case "left":
@@ -5963,21 +6081,27 @@
             moveFocus(action);
             return true;
           case "enter":
-            openPicker(focus);
+            // Real remotes are handled by the key-down/key-up listeners above; this covers on-screen/virtual presses.
+            setTimeout(() => {
+              if (alive && Date.now() - lastEnterAt > 60 && !pk && !menu) openPicker(tiles[focus]);
+            }, 0);
+            return true;
+          case "yellow":
+          case "menu":
+            openSquareMenu();
             return true;
           case "green":
           case "playpause":
-            if (assign[focus]) {
+            if (tiles[focus].a) {
               zoomOn = !zoomOn;
               paintAll();
             }
             return true;
           case "red":
-            if (assign[focus]) {
-              stopTile(focus);
-              assign[focus] = null;
-              set("quad", assign);
-              emptyTile(focus);
+            if (tiles[focus].a) {
+              stopTile(tiles[focus]);
+              tiles[focus].a = null;
+              emptyTile(tiles[focus]);
             }
             return true;
           case "back":
@@ -7844,7 +7968,7 @@
   // app/js/screens/form.js
   var IME_DONE2 = 65376;
   var IME_CANCEL2 = 65385;
-  function FormScreen({ title, lead, fields, action, actionNote, hint, onSubmit, onDone, okText }) {
+  function FormScreen({ title, lead, fields, action, actionNote, hint, onSubmit, onDone, okText, busyText }) {
     const el3 = h("div", "screen picker form");
     const ambience = useAmbience();
     h("h1", "picker-title", el3).textContent = title;
@@ -7908,7 +8032,7 @@
           values[r.f.key] = r.input.value.trim();
         });
         busy = true;
-        setText(status, "Connecting\u2026");
+        setText(status, busyText || "Connecting\u2026");
         try {
           const info = yield onSubmit(values);
           setText(status, okText ? okText(info) : "Connected to " + info.name);
@@ -8039,19 +8163,20 @@
   function XtreamForm({ onDone }) {
     const last2 = remembered("lastXtream");
     return FormScreen({
-      title: "IPTV: Xtream",
+      title: "Provider TV",
       fields: [
-        { key: "address", label: "Server address", placeholder: "provider.com:8080   (no http:// needed)", value: last2.address },
+        { key: "address", label: "Provider address", placeholder: "provider.com:8080   (no http:// needed)", value: last2.address },
         { key: "user", label: "Username", placeholder: "", value: last2.user },
         { key: "pass", label: "Password", placeholder: "", value: last2.pass, secret: true },
-        { key: "ext", label: "Live format", placeholder: "ts (or m3u8)", value: last2.ext || "ts" }
+        { key: "ext", label: "Live format", placeholder: "ts (or m3u8)", value: last2.ext || "ts" },
+        { key: "pname", label: "Name", placeholder: "Provider name (optional)", value: "" }
       ],
       actionNote: "Live TV, movies and series from your provider",
-      hint: "Your provider gives you the server address, username and password. Live channels try <b>ts</b> first, then m3u8 automatically.",
+      hint: "Your provider gives you the address, username and password. Live channels try <b>ts</b> first, then m3u8 automatically.",
       onSubmit(v) {
         return __async(this, null, function* () {
           let uri = normalizeBase(v.address);
-          if (!uri) throw new Error("Type the server address first.");
+          if (!uri) throw new Error("Type the provider address first.");
           if (!v.user || !v.pass) throw new Error("Type the username and password.");
           let info;
           try {
@@ -8070,7 +8195,8 @@
           let liveExt = /^m3u8$/i.test(v.ext) ? "m3u8" : "ts";
           if (info.formats && info.formats.length && info.formats.indexOf(liveExt) === -1) liveExt = info.formats[0] === "m3u8" ? "m3u8" : "ts";
           set("lastXtream", { address: v.address, user: v.user, pass: v.pass, ext: liveExt });
-          useIptv({ kind: "xtream", uri, user: v.user, pass: v.pass, liveFirst: liveExt, formats: info.formats, name: info.name }, "Xtream");
+          const pn = newProvName("xtream", uri, v.user, v.pname);
+          useIptv({ kind: "xtream", uri, user: v.user, pass: v.pass, liveFirst: liveExt, formats: info.formats, name: info.name, pname: pn }, pn);
           return info;
         });
       },
@@ -8080,12 +8206,13 @@
   function MacForm({ onDone }) {
     const last2 = remembered("lastPortal");
     return FormScreen({
-      title: "IPTV: MAC portal",
+      title: "Provider TV \xB7 MAC",
       lead: macLead(),
       fields: [
         { key: "portal", label: "Portal address", placeholder: "http://portal.example.com/c/", value: last2.portal },
         { key: "mac", label: "MAC to use", placeholder: tvMac().mac, value: last2.mac || tvMac().mac },
-        ...window.ZenAndroid ? [] : [{ key: "bridge", label: "Bridge (optional)", placeholder: "http://192.168.1.10:8080  (a PC running desktop.bat lan)", value: get("bridge") || "" }]
+        ...window.ZenAndroid ? [] : [{ key: "bridge", label: "Bridge (optional)", placeholder: "http://192.168.1.10:8080  (a PC running desktop.bat lan)", value: get("bridge") || "" }],
+        { key: "pname", label: "Name", placeholder: "Provider name (optional)", value: "" }
       ],
       actionNote: "Activated by the MAC address above",
       hint: "Send the MAC address to your provider so they activate it, then type the portal address they give you. Leave the MAC field as it is unless your provider activated a different one. Bridge: only if the portal refuses the TV directly; see the README.",
@@ -8100,7 +8227,8 @@
           const info = yield server.connect();
           yield server.verify();
           set("lastPortal", { portal: v.portal, mac });
-          useIptv({ kind: "stalker", uri, mac, loadUrl: server.loadUrl, name: info.name }, "MAC portal");
+          const pn = newProvName("stalker", uri, mac, v.pname);
+          useIptv({ kind: "stalker", uri, mac, loadUrl: server.loadUrl, name: info.name, pname: pn }, pn);
           return info;
         });
       },
@@ -8110,7 +8238,7 @@
   function AddServer({ onDone, welcome }) {
     const el3 = h("div", "screen picker form");
     const ambience = useAmbience();
-    h("h1", "picker-title", el3).textContent = welcome ? "Welcome to Zen Pro" : "Add a server";
+    h("h1", "picker-title", el3).textContent = welcome ? "Welcome to Zen Pro" : "Add a provider";
     if (!isTizen) {
       if (!welcome) {
         const back2 = h("div", "back-btn", el3);
@@ -8322,7 +8450,7 @@
   function actCall(server, path, params) {
     return __async(this, null, function* () {
       const j = yield getJson(server + path + "?" + qs(params), { timeout: 2e4 });
-      if (!j || typeof j !== "object") throw new Error("The activation server gave an unexpected answer.");
+      if (!j || typeof j !== "object") throw new Error("The activation service gave an unexpected answer.");
       return j;
     });
   }
@@ -8482,8 +8610,8 @@
     ];
     if (!(act && act.lockManual) && !policyLocked()) {
       list.push(
-        { label: "IPTV: Xtream", note: "Provider address, username and password", open: () => XtreamForm({ onDone }) },
-        { label: "IPTV: MAC portal", note: "Activated by the MAC address", open: () => MacForm({ onDone }) }
+        { label: "Provider TV", note: "Provider address, username and password", open: () => XtreamForm({ onDone }) },
+        { label: "Provider TV \xB7 MAC", note: "Activated by the MAC address", open: () => MacForm({ onDone }) }
       );
     }
     return list;
@@ -8861,7 +8989,7 @@
         otaManual = false;
       }, () => {
         otaManual = false;
-        toast("Can't reach the update server");
+        toast("Can't reach the update service");
       });
     } });
     const u = get("apkUpdate");
@@ -8997,6 +9125,51 @@
     };
   }
 
+  // Provider names: the one the customer typed, else "Provider N".
+  function provName(p, idx) {
+    const s = p && p.saved || {};
+    if (s.pname) return String(s.pname);
+    if (s.managed) return String(p.label || "").split(" \xB7 ")[0] || "Provider";
+    return "Provider " + (idx + 1);
+  }
+  function newProvName(kind, uri, who, typed) {
+    const t = String(typed || "").trim();
+    if (t) return t;
+    const id = [kind, uri, who || ""].join("|");
+    const old = profiles().find((p) => p.id === id);
+    if (old && old.saved && old.saved.pname) return old.saved.pname;
+    return "Provider " + (profiles().length + (old ? 0 : 1));
+  }
+  function renameProfile(id, name) {
+    const nm = String(name || "").trim();
+    set("profiles", profiles().map((p) => p.id === id ? Object.assign({}, p, { saved: Object.assign({}, p.saved, { pname: nm }) }) : p));
+    const cur = session.server && session.server.saved;
+    if (cur && [cur.kind || "plex", cur.uri, cur.user || cur.mac || ""].join("|") === id) {
+      cur.pname = nm;
+      set("server", cur);
+      if (session.user) {
+        session.user.title = nm || "Provider TV";
+        set("user", session.user);
+      }
+    }
+  }
+  function RenameScreen({ p, idx, onDone }) {
+    return FormScreen({
+      title: "Rename provider",
+      fields: [{ key: "pname", label: "Name", placeholder: "Provider name", value: provName(p, idx) }],
+      action: "Save",
+      busyText: "Saving\u2026",
+      okText: () => "Saved",
+      onSubmit(v) {
+        return __async(this, null, function* () {
+          renameProfile(p.id, v.pname === "Provider " + (idx + 1) && !(p.saved && p.saved.pname) ? "" : v.pname);
+          return { name: v.pname };
+        });
+      },
+      onDone
+    });
+  }
+
   // app/js/screens/profiles.js
   var ROW = 112;
   function ServersScreen({ onDone }) {
@@ -9022,18 +9195,17 @@
     function build() {
       while (list.firstChild) list.removeChild(list.firstChild);
       const items = profiles();
-      title.textContent = "Servers" + (items.length ? "  (" + items.length + ")" : "");
+      title.textContent = "Providers" + (items.length ? "  (" + items.length + ")" : "");
       rows = [];
       const add = h("div", "btn btn-wide servers-add", list);
-      h("span", "", add).textContent = "+  Add a server";
-      h("small", "", add).textContent = "Activation code, Xtream or MAC portal";
+      h("span", "", add).textContent = "+  Add a provider";
+      h("small", "", add).textContent = "Activation code or provider login";
       rows.push({ el: add, p: null });
       const now = currentId();
       items.forEach((p, pi) => {
         const b = h("div", "btn btn-wide", list);
-        const kindName = String(p.label || "").split(" \xB7 ")[0] || "Server";
-        h("span", "", b).textContent = p.saved && p.saved.managed ? p.label : kindName + " \xB7 Server " + (pi + 1);
-        h("small", "", b).textContent = p.id === now ? "\u25CF  In use now" : "OK to switch   \xB7   Y to remove";
+        h("span", "", b).textContent = provName(p, pi);
+        h("small", "", b).textContent = p.id === now ? "\u25CF  In use now   \xB7   B to rename" : "OK to switch   \xB7   B rename   \xB7   Y remove";
         toggleClass(b, "current", p.id === now);
         rows.push({ el: b, p });
       });
@@ -9062,8 +9234,9 @@
         push(AddServer({ onDone, welcome: true }));
         return;
       }
+      const nm2 = provName(r.p, Math.max(0, profiles().findIndex((x) => x.id === r.p.id)));
       activateProfile(r.p);
-      toast("Switched to " + r.p.label.split(" \xB7 ")[0]);
+      toast("Switched to " + nm2);
       onDone();
     }
     build();
@@ -9087,6 +9260,14 @@
         }
         if (a === "enter") {
           pick();
+          return true;
+        }
+        if (a === "blue" || a === "menu") {
+          const r = rows[index];
+          if (r && r.p) {
+            if (r.p.saved && r.p.saved.managed) toast("This service is managed by your provider");
+            else push(RenameScreen({ p: r.p, idx: Math.max(0, profiles().findIndex((x) => x.id === r.p.id)), onDone: () => back() }));
+          }
           return true;
         }
         if (a === "yellow") {
@@ -9242,7 +9423,7 @@
     function build() {
       list.innerHTML = "";
       items = [
-        { label: "Servers", value: (profiles().length || 0) + " saved", run: () => push(ServersScreen({ onDone: restart2 })) },
+        { label: "Providers", value: (profiles().length || 0) + " saved", run: () => push(ServersScreen({ onDone: restart2 })) },
         { label: "Signed in as", value: session.user ? session.user.title : "\u2014", run: doSignOut, action: "Sign out" },
         { label: "Device ID", value: deviceId(), run: () => toast("Give this ID to your provider: " + deviceId(), 7e3) },
         { label: "Activation", value: actStatusText(), run: () => {
@@ -9529,7 +9710,7 @@
     const tools = h("div", "mh-tools", top2);
     const toolItems = [
       { id: "search", icon: search, label: "Search", run: openSearch },
-      { id: "servers", icon: servers, label: "Servers", run: openServers }
+      { id: "servers", icon: servers, label: "Providers", run: openServers }
     ];
     toolItems.forEach((t, ti) => {
       t.el = h("div", "mh-tool", tools);
@@ -9646,7 +9827,7 @@
     const infoName = h("div", "lb-name", info);
     const infoCat = h("div", "lb-cat", info);
     const infoRes = h("div", "lb-res", info);
-    h("div", "lb-hint", info).textContent = "\u25C4 \u25BA  Categories / Channels   \u00B7   OK  Full screen   \u00B7   MENU  \u2605 Favorite   \u00B7   Back";
+    h("div", "lb-hint", info).textContent = "\u25C4 \u25BA  Categories / Channels   \u00B7   OK  Full screen   \u00B7   Hold OK  \u2605 Favorite   \u00B7   Back";
     let cats = [];
     let chans = [];
     let ci = 0;
@@ -9665,6 +9846,32 @@
     let pvKey = "";
     let leaving = false;
     let retKey = "";
+    let lastEnterAt = 0;
+    const hold = zqHold(() => {
+      if (alive && shown && !leaving && zone === "chs" && chans.length) okOnChannel();
+    }, () => {
+      if (alive && shown && !leaving && zone === "chs" && chans.length) toggleFavBrowser();
+    }, 3e3);
+    const isEnterKey = (e) => e.keyCode === 13 || e.keyCode === 23 || e.key === "Enter";
+    const onKd = (e) => {
+      if (!alive || !shown || !isEnterKey(e)) return;
+      lastEnterAt = Date.now();
+      hold.down(zone === "chs" && chans.length > 0 && !leaving);
+    };
+    const onKu = (e) => {
+      if (isEnterKey(e)) hold.up();
+    };
+    function keysOn() {
+      window.removeEventListener("keydown", onKd, true);
+      window.removeEventListener("keyup", onKu, true);
+      window.addEventListener("keydown", onKd, true);
+      window.addEventListener("keyup", onKu, true);
+    }
+    function keysOff() {
+      window.removeEventListener("keydown", onKd, true);
+      window.removeEventListener("keyup", onKu, true);
+      hold.cancel();
+    }
     function fitImg(img, item) {
       img.onerror = () => {
         img.onerror = null;
@@ -9714,7 +9921,7 @@
       if (!chans.length) {
         chsBox.innerHTML = "";
         chPool.length = 0;
-        h("div", "lb-empty", chsBox).textContent = loadId ? "Loading\u2026" : cats[ci] && String(cats[ci].sectionKey) === "live:fav" ? "No favorites yet. Press MENU on a channel to add it." : "No channels";
+        h("div", "lb-empty", chsBox).textContent = loadId ? "Loading\u2026" : cats[ci] && String(cats[ci].sectionKey) === "live:fav" ? "No favorites yet. Hold OK on a channel for 3 seconds to add it." : "No channels";
         setText(chsPos, "");
         return;
       }
@@ -10003,7 +10210,6 @@
       toast(on ? "Added to favorites" : "Removed from favorites");
       const cur = cats[ci];
       if (!on && cur && String(cur.sectionKey) === "live:fav") {
-        stopPreview();
         chans = chans.filter((x) => x.ratingKey !== c.ratingKey);
         hi = Math.min(hi, Math.max(0, chans.length - 1));
         if (!chans.length) zone = "cats";
@@ -10063,6 +10269,7 @@
       onShow() {
         shown = true;
         leaving = false;
+        keysOn();
         el3.style.transition = "";
         el3.style.opacity = "";
         document.documentElement.classList.add("lb-on");
@@ -10072,12 +10279,14 @@
       },
       onHide() {
         shown = false;
+        keysOff();
         document.documentElement.classList.remove("lb-on");
         stopPreview();
       },
       destroy() {
         alive = false;
         shown = false;
+        keysOff();
         dropWarm();
         clearTimeout(loadTimer);
         document.documentElement.classList.remove("lb-on");
@@ -10091,7 +10300,6 @@
             const n = Math.max(0, Math.min(cats.length - 1, ci + d));
             if (n !== ci) {
               ci = n;
-              stopPreview();
               selectCat();
             }
           } else if (chans.length) {
@@ -10112,7 +10320,6 @@
         }
         if (action === "left" && zone === "chs") {
           zone = "cats";
-          stopPreview();
           paintAll();
           return true;
         }
@@ -10123,7 +10330,11 @@
               paintAll();
               schedulePreview();
             }
-          } else okOnChannel();
+          } else {
+            setTimeout(() => {
+              if (alive && shown && !leaving && zone === "chs" && Date.now() - lastEnterAt > 60) okOnChannel();
+            }, 0);
+          }
           return true;
         }
         if ((action === "menu" || action === "red") && zone === "chs" && chans.length) {

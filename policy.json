@@ -7,10 +7,10 @@
   "support": "",
   "activationServer": "",
   "update": {
-    "version": "1.3.9",
+    "version": "1.3.11",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "rZ/bY72qHCxOH9O0eFE5+d6XlN5kF9DPEw1yAlO+sdPGk/aAS9dAh/XeB0Bd0k1DDWvyg2YbAM9RkbD3N3p6Bw==",
-    "notes": "عودة سلسة للمعاينة بعد الشاشة الكاملة، قسم المفضلة بزر القائمة، وتقسيم الشاشة 2 أو 3 أو 4 مربعات بواجهة نظيفة",
-    "size": 424209
+    "sig": "HmEdSLvuf5W1Rwa1deda+Tw9x2QM9H953aIs7WBQ9i+baQOauaP68YUZR6PXyuhOJZPjWxD30DQv2zsvV0eeCg==",
+    "notes": "ضغطة OK مطوّلة 3 ثوانٍ على القناة في قائمة Live TV تضيفها إلى المفضلة أو تحذفها (بديل لزر المفضلة)",
+    "size": 432253
   }
 }
