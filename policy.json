@@ -9,7 +9,7 @@
   "update": {
     "version": "1.3.12",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "",
+    "sig": "aCBuvPo8bVC0zZ6WADEkWlDL9iC8LnXrv568UeMQ9ciKA4aUQCO0ycszrA0Qel2ZlrLa5TqawH0T3M8FdPhDAw==",
     "notes": "قائمة خيارات لكل مزوّد (تحديث القنوات، حذف مع تأكيد، إعادة تسمية) بزر OK فقط، تسريع تقسيم الشاشة مع تجربة صيغ البث البديلة، وشاشة VPN مجاني جديدة",
     "size": 439240
   }
