@@ -121,7 +121,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.12";
+  var VERSION = "1.3.13";
 
   // app/js/router.js
   var router_exports = {};
@@ -482,6 +482,14 @@
     const ss = s % 60;
     const pad2 = (n) => (n < 10 ? "0" : "") + n;
     return (hh ? hh + ":" + pad2(mm) : mm) + ":" + pad2(ss);
+  }
+  // Provider run time in ms: the largest of the plausible fields (some providers fill duration_secs wrongly, or only the text field).
+  function vodMs(info) {
+    info = info || {};
+    let best = num(info.duration_secs) * 1e3;
+    const m = String(info.duration || "").match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+    if (m) best = Math.max(best, (+m[1] * 3600 + +m[2] * 60 + +m[3]) * 1e3);
+    return best;
   }
   function episodeLabel(item) {
     if (item.type !== "episode") return "";
@@ -1573,14 +1581,14 @@
           return this.decorate(Object.assign({}, base, {
             summary: info.plot || info.description || "",
             year: yearOf(info.releasedate) || base.year,
-            duration: num(info.duration_secs) * 1e3,
+            duration: vodMs(info),
             art: back2 || base.art,
             audienceRating: base.audienceRating || Number(info.rating) || void 0,
             thumb: base.thumb || info.movie_image,
             Genre: info.genre ? String(info.genre).split(/\s*[,/]\s*/).slice(0, 3).map((tag) => ({ tag })) : void 0,
             Director: info.director ? [{ tag: info.director }] : void 0,
             Role: info.cast ? String(info.cast).split(/\s*,\s*/).slice(0, 6).map((tag) => ({ tag })) : void 0,
-            Media: mediaFor(this.streamUrl("movie", a, ext), ext, num(info.duration_secs) * 1e3)
+            Media: mediaFor(this.streamUrl("movie", a, ext), ext, vodMs(info))
           }));
         }
         if (kind === "ser") {
@@ -1636,7 +1644,7 @@
               parentIndex: Number(n),
               title: ep.title || "Episode " + ep.episode_num,
               summary: info.plot || "",
-              duration: num(info.duration_secs) * 1e3,
+              duration: vodMs(info),
               grandparentTitle: show2.title,
               grandparentRatingKey: "ser:" + sid,
               parentRatingKey: key,
@@ -1644,7 +1652,7 @@
               grandparentArt: show2.art,
               thumb: info.movie_image || show2.thumb,
               art: show2.art,
-              Media: mediaFor(this.streamUrl("series", ep.id, ext), ext, num(info.duration_secs) * 1e3)
+              Media: mediaFor(this.streamUrl("series", ep.id, ext), ext, vodMs(info))
             };
             return this.decorate(item);
           }));
@@ -2623,6 +2631,7 @@
   var uncheck = '<svg viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="2.4" cx="12" cy="12" r="8"/></svg>';
   var tv = '<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2.2" x="3" y="6" width="18" height="13" rx="2.5"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M8.5 2.5L12 6l3.5-3.5"/></svg>';
   var search = '<svg viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="2.6" cx="10.5" cy="10.5" r="6.5"/><path stroke="currentColor" stroke-width="2.6" stroke-linecap="round" d="M15.5 15.5L20 20"/></svg>';
+  var refreshIc = '<svg viewBox="0 0 24 24"><polyline fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" points="23 4 23 10 17 10"/><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
   var servers = '<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2.2" x="3.5" y="3.5" width="17" height="7" rx="2"/><rect fill="none" stroke="currentColor" stroke-width="2.2" x="3.5" y="13.5" width="17" height="7" rx="2"/><circle fill="currentColor" cx="7.5" cy="7" r="1.2"/><circle fill="currentColor" cx="7.5" cy="17" r="1.2"/></svg>';
   var gear = '<svg viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="2.4" cx="12" cy="12" r="3.2"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" d="M12 2.8l1.6 2.4 2.8-.7.7 2.8 2.4 1.6-1.2 2.6 1.2 2.6-2.4 1.6-.7 2.8-2.8-.7L12 21.2l-1.6-2.4-2.8.7-.7-2.8-2.4-1.6L5.7 12 4.5 9.4l2.4-1.6.7-2.8 2.8.7z"/></svg>';
   var subtitles = '<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2.2" x="2.5" y="5" width="19" height="14" rx="2.5"/><path stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M6.5 15h4M13 15h4.5M6.5 11.5h7M15.5 11.5h2"/></svg>';
@@ -3579,7 +3588,7 @@
         return v.currentTime * 1e3;
       },
       info() {
-        return { width: v.videoWidth, height: v.videoHeight };
+        return { width: v.videoWidth, height: v.videoHeight, d: isFinite(v.duration) ? v.duration * 1e3 : 0 };
       },
       state() {
         return v.paused ? "PAUSED" : "PLAYING";
@@ -3873,7 +3882,9 @@
       info() {
         if (fb) return fb.info();
         try {
-          return JSON.parse(Z.info());
+          const o = JSON.parse(Z.info());
+          o.d = dur;
+          return o;
         } catch (e) {
           return null;
         }
@@ -4858,6 +4869,29 @@
     let base = 0;
     let position = offset || 0;
     let duration2 = initial.duration || 0;
+    let durFake = false;
+    let durAt = 0;
+    // A film or episode shorter than ten minutes is a provider mistake: such a length is not shown (and never limits seeking).
+    function durTrusted(d) {
+      if (!(d > 0) || durFake) return false;
+      return item && (item.type === "movie" || item.type === "episode") ? d >= 6e5 : true;
+    }
+    // The player knows the real length once the file is open: use it when it is longer than what the provider said.
+    function adoptDuration() {
+      const now = Date.now();
+      if (now - durAt < 1500) return;
+      durAt = now;
+      let d = 0;
+      try {
+        const inf = player.info && player.info();
+        d = inf && Number(inf.d) > 0 ? Number(inf.d) : 0;
+      } catch (e) {
+      }
+      if (d > duration2 && isFinite(d)) {
+        duration2 = d;
+        durFake = false;
+      }
+    }
     let paused = false;
     let started = false;
     let alive = true;
@@ -4881,7 +4915,11 @@
       onTime(ms2) {
         if (!started) return;
         position = base + ms2;
-        if (item && item.type === "movie" && duration2 > 0 && duration2 < 6e5 && position > duration2 - 2e3) duration2 = position + 72e5;
+        if (item && !item.live) adoptDuration();
+        if (item && item.type === "movie" && duration2 > 0 && duration2 < 6e5 && position > duration2 - 2e3) {
+          duration2 = position + 72e5;
+          durFake = true;
+        }
         if (seekTarget == null) renderProgress(position);
       },
       onBuffering(on) {
@@ -4900,20 +4938,26 @@
       }
     });
     function renderProgress(ms2) {
-      const p = duration2 ? Math.max(0, Math.min(1, ms2 / duration2)) : 0;
+      const ok = durTrusted(duration2);
+      const p = ok ? Math.max(0, Math.min(1, ms2 / duration2)) : 0;
       setTransform(barFill, "scaleX(" + p.toFixed(4) + ")");
       setTransform(knob, "translateX(" + Math.round(p * 1728) + "px)");
       const now = Date.now();
       if (now - lastText > 900 || seekTarget != null) {
         lastText = now;
         setText(tNow, clock(ms2));
-        setText(tLeft, "\u2212" + clock(duration2 - ms2));
-        const ends = new Date(now + (duration2 - ms2));
-        let hh = ends.getHours();
-        const ampm = hh >= 12 ? "PM" : "AM";
-        hh = hh % 12 || 12;
-        const mm = ends.getMinutes();
-        setText(tInfo, "Ends at " + hh + ":" + (mm < 10 ? "0" : "") + mm + " " + ampm);
+        if (ok) {
+          setText(tLeft, "\u2212" + clock(duration2 - ms2));
+          const ends = new Date(now + (duration2 - ms2));
+          let hh = ends.getHours();
+          const ampm = hh >= 12 ? "PM" : "AM";
+          hh = hh % 12 || 12;
+          const mm = ends.getMinutes();
+          setText(tInfo, "Ends at " + hh + ":" + (mm < 10 ? "0" : "") + mm + " " + ampm);
+        } else {
+          setText(tLeft, "");
+          setText(tInfo, "");
+        }
       }
     }
     function showOsd(sticky) {
@@ -4946,7 +4990,7 @@
         key: "/library/metadata/" + item.ratingKey,
         state,
         time: Math.floor(position),
-        duration: Math.floor(duration2),
+        duration: Math.floor(durTrusted(duration2) ? duration2 : 0),
         "X-Plex-Session-Identifier": playSession
       });
     }
@@ -5092,6 +5136,7 @@
             if (session.server.rememberLast) session.server.rememberLast(item);
           }
           duration2 = item.duration || duration2;
+          durFake = false;
           media = (item.Media || [])[0];
           part = media && media.Part && media.Part[0];
           if (!part) throw new Error("No playable media");
@@ -5159,7 +5204,7 @@
       lastSeekAt = now;
       const step = seekCount < 3 ? 1e4 : seekCount < 8 ? 3e4 : seekCount < 16 ? 6e4 : 18e4;
       const from = seekTarget == null ? position : seekTarget;
-      seekTarget = Math.max(0, Math.min(duration2 - 3e3, from + dir * step));
+      seekTarget = Math.max(0, Math.min(durTrusted(duration2) ? duration2 - 3e3 : Infinity, from + dir * step));
       toggleClass(el3, "seeking", true);
       setText(seekLabel, clock(seekTarget));
       renderProgress(seekTarget);
@@ -9532,11 +9577,29 @@
   function currentTheme() {
     return THEMES.find((t) => t.id === get("theme", "jade")) || THEMES[0];
   }
+  // Brightness of the accent colour (the highlighted card and its glow), 60..100 %.
+  function brightLevel() {
+    const v = Number(get("themeBright", 100));
+    return v >= 60 && v <= 100 ? Math.round(v / 10) * 10 : 100;
+  }
+  function setBright(v) {
+    set("themeBright", Math.max(60, Math.min(100, v)));
+    applyTheme();
+  }
   function applyTheme(theme) {
     const t = theme || currentTheme();
     const root3 = document.documentElement;
-    root3.style.setProperty("--accent-rgb", t.rgb.join(", "));
-    root3.style.setProperty("--accent", "rgb(" + t.rgb.join(", ") + ")");
+    const k = brightLevel() / 100;
+    const rgb = t.rgb.map((c) => Math.round(c * k));
+    root3.style.setProperty("--accent-rgb", rgb.join(", "));
+    root3.style.setProperty("--accent", "rgb(" + rgb.join(", ") + ")");
+  }
+  function stepTheme(dir) {
+    const i = THEMES.findIndex((t2) => t2.id === currentTheme().id);
+    const t = THEMES[(i + dir + THEMES.length) % THEMES.length];
+    set("theme", t.id);
+    applyTheme(t);
+    return t;
   }
   function nextTheme() {
     const i = THEMES.findIndex((t2) => t2.id === currentTheme().id);
@@ -9544,6 +9607,51 @@
     set("theme", t.id);
     applyTheme(t);
     return t;
+  }
+
+  // Brightness card: Left/Right changes it at once (live preview), OK keeps it, Back puts the old value back.
+  function brightCard(parent, onClose) {
+    zqCss();
+    const born = Date.now();
+    const orig = brightLevel();
+    const wrap = h("div", "zq-ask", parent);
+    const card = h("div", "zq-card", wrap);
+    card.style.minWidth = "820px";
+    h("div", "zq-title", card).textContent = "Colour brightness";
+    const track = h("div", "", card);
+    track.style.cssText = "height:30px;border-radius:15px;background:rgba(234,243,239,.14);overflow:hidden;margin:6px 0 22px";
+    const fill = h("div", "", track);
+    fill.style.cssText = "height:100%;border-radius:15px;background:var(--accent)";
+    const val = h("div", "zq-pos", card);
+    val.style.cssText = "text-align:center;font-size:44px;color:var(--mist);margin:0 0 8px";
+    h("div", "zq-pos", card).textContent = "Left / Right: change    \xB7    OK: keep    \xB7    Back: cancel";
+    let lvl = orig;
+    function paint() {
+      fill.style.width = Math.round((lvl - 50) / 50 * 100) + "%";
+      val.textContent = lvl + "%";
+    }
+    paint();
+    function close() {
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      onClose();
+    }
+    return {
+      close,
+      key(action) {
+        if (action === "left" || action === "right") {
+          lvl = Math.max(60, Math.min(100, lvl + (action === "left" ? -10 : 10)));
+          setBright(lvl);
+          paint();
+        } else if (action === "enter") {
+          if (Date.now() - born < 350) return true;
+          close();
+        } else if (action === "back" || action === "stop") {
+          setBright(orig);
+          close();
+        }
+        return true;
+      }
+    };
   }
 
   // app/js/screens/settings.js
@@ -9615,11 +9723,11 @@
     foot.textContent = "Zen Pro " + VERSION + (DEV ? " (dev)" : "");
     let index = 0;
     let items = [];
+    let card = null;
     function build() {
       list.innerHTML = "";
       items = [
         { label: "Providers", value: (profiles().length || 0) + " saved", run: () => push(ServersScreen({ onDone: restart2 })) },
-        { label: "Signed in as", value: session.user ? session.user.title : "\u2014", run: doSignOut, action: "Sign out" },
         { label: "Device ID", value: deviceId(), run: () => toast("Give this ID to your provider: " + deviceId(), 7e3) },
         { label: "Activation", value: actStatusText(), run: () => {
           if (!get("act")) {
@@ -9664,8 +9772,13 @@
           toast(m ? "Sleep timer: " + m + " min" : "Sleep timer off");
           build();
         } },
-        { label: "Accent color", value: currentTheme().label, run: () => {
-          nextTheme();
+        { label: "Accent color", value: "\u2039  " + currentTheme().label + "  \u203A   \xB7   brightness " + brightLevel() + "%", action: "OK to adjust brightness", run: () => {
+          card = brightCard(el3, () => {
+            card = null;
+            build();
+          });
+        }, lr: (d) => {
+          stepTheme(d);
           build();
         } },
         { label: "Performance overlay", value: hudEnabled() ? "On" : "Off", run: () => {
@@ -9735,6 +9848,7 @@
         build();
       },
       onKey(action) {
+        if (card) return card.key(action);
         if (action === "up") {
           index = Math.max(0, index - 1);
           render();
@@ -9743,6 +9857,10 @@
         if (action === "down") {
           index = Math.min(items.length - 1, index + 1);
           render();
+          return true;
+        }
+        if ((action === "left" || action === "right") && items[index] && items[index].lr) {
+          items[index].lr(action === "left" ? -1 : 1);
           return true;
         }
         if (action === "enter") {
@@ -9905,6 +10023,7 @@
     const tools = h("div", "mh-tools", top2);
     const toolItems = [
       { id: "search", icon: search, label: "Search", run: openSearch },
+      { id: "refresh", icon: refreshIc, label: "Refresh", run: refreshHome },
       { id: "servers", icon: servers, label: "Providers", run: openServers }
     ];
     toolItems.forEach((t, ti) => {
@@ -9956,6 +10075,37 @@
           if (r && r.total) setText(c.n, r.total + " " + noun);
         }, () => {
         });
+      });
+    }
+    let refreshing = false;
+    // Forget what was loaded from the provider in use and load its channel list again; the counts on the cards follow.
+    function refreshHome() {
+      const s = session.server;
+      if (!s) {
+        toast("No provider selected");
+        return;
+      }
+      if (refreshing) {
+        toast("Already refreshing\u2026");
+        return;
+      }
+      refreshing = true;
+      toast("Refreshing channels\u2026", 3e4);
+      try {
+        if (typeof s.refresh === "function") s.refresh();
+        else if (typeof s.invalidate === "function") s.invalidate();
+      } catch (e) {
+      }
+      set("homeCache", void 0);
+      const loaded = typeof s.raw === "function" ? s.raw("live") : Promise.resolve(null);
+      loaded.then((all) => {
+        refreshing = false;
+        toast("Channels updated" + (all && all.length ? " \xB7 " + all.length + " channels" : ""), 4e3);
+        if (session.server === s) s.sections().then(build, () => {
+        });
+      }, (e) => {
+        refreshing = false;
+        toast(e && e.message ? e.message : "Could not refresh", 6e3);
       });
     }
     const server0 = session.server;

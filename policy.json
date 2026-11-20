@@ -7,10 +7,10 @@
   "support": "",
   "activationServer": "",
   "update": {
-    "version": "1.3.12",
+    "version": "1.3.13",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "aCBuvPo8bVC0zZ6WADEkWlDL9iC8LnXrv568UeMQ9ciKA4aUQCO0ycszrA0Qel2ZlrLa5TqawH0T3M8FdPhDAw==",
-    "notes": "قائمة خيارات لكل مزوّد (تحديث القنوات، حذف مع تأكيد، إعادة تسمية) بزر OK فقط، تسريع تقسيم الشاشة مع تجربة صيغ البث البديلة، وشاشة VPN مجاني جديدة",
-    "size": 439240
+    "sig": "DRfFYDJnk/ywxIuA1HpOT28sMiJt7xgem6ZdyE3vY1Aaq+qWs9PJOqolAo/2Eldd2sXJ34mgev6LYAP8YB7XDA==",
+    "notes": "زر Refresh في القائمة الرئيسية لتحديث قنوات المزوّد، تصحيح مدة الأفلام المعروضة، ألوان بالأسهم يمين/يسار مع ضبط السطوع بـ OK، وإزالة صف Signed in as",
+    "size": 445088
   }
 }
