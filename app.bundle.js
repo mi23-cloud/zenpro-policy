@@ -121,7 +121,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.13";
+  var VERSION = "1.3.14";
 
   // app/js/router.js
   var router_exports = {};
@@ -294,6 +294,22 @@
     } catch (e) {
       window.close();
     }
+  }
+  // Leave the app on purpose. A native exit() (newer APKs) closes it at once; the current Android shell only closes on a
+  // double Back press, so the person is told that instead.
+  function leaveApp() {
+    try {
+      if (window.ZenPlayer && typeof window.ZenPlayer.exit === "function") {
+        window.ZenPlayer.exit();
+        return;
+      }
+    } catch (e) {
+    }
+    if (typeof tizen !== "undefined") {
+      exitApp();
+      return;
+    }
+    toast("Press Back twice to exit", 6e3);
   }
   function deviceInfo() {
     let model = "Browser";
@@ -2631,6 +2647,7 @@
   var uncheck = '<svg viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="2.4" cx="12" cy="12" r="8"/></svg>';
   var tv = '<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2.2" x="3" y="6" width="18" height="13" rx="2.5"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M8.5 2.5L12 6l3.5-3.5"/></svg>';
   var search = '<svg viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="2.6" cx="10.5" cy="10.5" r="6.5"/><path stroke="currentColor" stroke-width="2.6" stroke-linecap="round" d="M15.5 15.5L20 20"/></svg>';
+  var powerIc = '<svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M12 3v8"/><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M6.4 6.6a8 8 0 1 0 11.2 0"/></svg>';
   var refreshIc = '<svg viewBox="0 0 24 24"><polyline fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" points="23 4 23 10 17 10"/><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
   var servers = '<svg viewBox="0 0 24 24"><rect fill="none" stroke="currentColor" stroke-width="2.2" x="3.5" y="3.5" width="17" height="7" rx="2"/><rect fill="none" stroke="currentColor" stroke-width="2.2" x="3.5" y="13.5" width="17" height="7" rx="2"/><circle fill="currentColor" cx="7.5" cy="7" r="1.2"/><circle fill="currentColor" cx="7.5" cy="17" r="1.2"/></svg>';
   var gear = '<svg viewBox="0 0 24 24"><circle fill="none" stroke="currentColor" stroke-width="2.4" cx="12" cy="12" r="3.2"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" d="M12 2.8l1.6 2.4 2.8-.7.7 2.8 2.4 1.6-1.2 2.6 1.2 2.6-2.4 1.6-.7 2.8-2.8-.7L12 21.2l-1.6-2.4-2.8.7-.7-2.8-2.4-1.6L5.7 12 4.5 9.4l2.4-1.6.7-2.8 2.8.7z"/></svg>';
@@ -10024,7 +10041,8 @@
     const toolItems = [
       { id: "search", icon: search, label: "Search", run: openSearch },
       { id: "refresh", icon: refreshIc, label: "Refresh", run: refreshHome },
-      { id: "servers", icon: servers, label: "Providers", run: openServers }
+      { id: "servers", icon: servers, label: "Providers", run: openServers },
+      { id: "exit", icon: powerIc, label: "Exit", run: askExit }
     ];
     toolItems.forEach((t, ti) => {
       t.el = h("div", "mh-tool", tools);
@@ -10108,6 +10126,17 @@
         toast(e && e.message ? e.message : "Could not refresh", 6e3);
       });
     }
+    let exitMenu = null;
+    // One question: OK leaves the app, No (the default) stays.
+    function askExit() {
+      if (exitMenu) return;
+      exitMenu = zvMenu(el3, "Leave the app?", [{ label: "OK" }, { label: "No" }], 1, (i) => {
+        exitMenu = null;
+        if (i === 0) leaveApp();
+      }, () => {
+        exitMenu = null;
+      });
+    }
     const server0 = session.server;
     if (server0) server0.sections().then(build, () => build([]));
     else build([]);
@@ -10119,6 +10148,7 @@
         render();
       },
       onKey(action) {
+        if (exitMenu) return exitMenu.key(action);
         if (zone === "tools") {
           if (action === "left") toolIdx = Math.max(0, toolIdx - 1);
           else if (action === "right") toolIdx = Math.min(toolItems.length - 1, toolIdx + 1);
