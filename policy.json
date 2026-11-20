@@ -7,10 +7,10 @@
   "support": "",
   "activationServer": "",
   "update": {
-    "version": "1.3.14",
+    "version": "1.3.15",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "LV5l2UyeIYNnQToKLphKOc7hmn+3zpvtrW+0FRp41anFEwb8H0B90HnTw9x8uZWjJgkPkDBEeftQt/fSzAIEAg==",
-    "notes": "زر الإطفاء (Exit) في القائمة الرئيسية مع رسالة واحدة OK / No، إضافة إلى تحديثات 1.3.13: زر Refresh وتصحيح مدة الأفلام والألوان بالأسهم وضبط السطوع",
-    "size": 446340
+    "sig": "OrLEuG2Reu9p8kzFqg93Tb/mx31zYgJP37EHj9oYb/Wj+8ZivRBWL+h/z0EGwwB6FRPIPtxYYGGh8LdZ5VeGDw==",
+    "notes": "إظهار عدد الاتصالات المسموحة في الشاشة الرئيسية بصيغة Provider، سطوع اللون الافتراضي 80% (قابل للرفع والخفض)، وإزالة زر Exit (الخروج بضغطة Back واحدة يحتاج تثبيت APK الجديد)",
+    "size": 445379
   }
 }
