@@ -121,7 +121,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.15";
+  var VERSION = "1.3.16";
 
   // app/js/router.js
   var router_exports = {};
@@ -1672,11 +1672,17 @@
       return [];
     }
   }
+  // The TV's real MAC typed once by the person, for systems that hide it from apps (Settings > MAC address).
+  function manualMac() {
+    return cleanMac(get("manualMac"));
+  }
   function tvMac() {
     if (typeof window !== "undefined" && window.ZenAndroid && window.ZenAndroid.macs) {
       const list = androidMacs();
       const pick = list.find((x) => /^eth/.test(x.name)) || list.find((x) => /^wlan/.test(x.name)) || list[0];
       if (pick) return { mac: pick.mac, real: true, source: /^eth/.test(pick.name) ? "Ethernet" : "Wi-Fi", others: list.filter((x) => x !== pick) };
+      const typed = manualMac();
+      if (typed) return { mac: typed, real: true, source: "Typed", others: [] };
       const m = virtual();
       return { mac: m, real: false, android: true };
     }
@@ -1687,6 +1693,8 @@
       } catch (e) {
       }
     }
+    const typed2 = manualMac();
+    if (typed2) return { mac: typed2, real: true, source: "Typed", others: [] };
     return { mac: virtual(), real: false };
   }
   function virtual() {
@@ -8540,20 +8548,19 @@
     for (let i = 0; i < n; i++) out += ("0" + (a ? a[i] : Math.floor(Math.random() * 256)).toString(16)).slice(-2);
     return out;
   }
-  // What the provider registers: the real MAC when the system lets the app read it, otherwise a stable generated ID.
+  // What the provider registers: always a MAC address (the real one when known, else the generated one that stays the same).
+  // A device that was linked before this version keeps the ID it was linked with, so its link does not break.
   function deviceId() {
+    const legacy = get("deviceId"), act0 = get("act");
+    if (legacy && act0 && act0.server) return legacy;
+    return tvMac().mac;
+  }
+  function idLabel() {
+    return /^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/.test(deviceId()) ? "MAC address" : "Device ID";
+  }
+  function hiddenMacNote() {
     const m = tvMac();
-    if (m.real) return m.mac;
-    let id = get("deviceId");
-    if (!id) {
-      const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      const r = randomHex(10);
-      let s2 = "";
-      for (let i = 0; i < 10; i++) s2 += A[parseInt(r.substr(i * 2, 2), 16) % A.length];
-      id = "ZP-" + s2.slice(0, 5) + "-" + s2.slice(5);
-      set("deviceId", id);
-    }
-    return id;
+    return m.android && !m.real ? '<br><span class="form-lead-small">This TV hides its real MAC from apps. If your provider needs the real one, type it in Settings &gt; MAC address.</span>' : "";
   }
   // Private to this installation: after the first activation the code only works with this key.
   function deviceKey() {
@@ -8571,7 +8578,7 @@
     device_limit: "This code is already used on the maximum number of devices.",
     device_blocked: "This device is blocked. Contact your provider.",
     key_mismatch: "This device was activated before and its link was lost (app data cleared?). Ask your provider to reset this device.",
-    not_registered: "This device is not registered with your provider yet. Send them the Device ID.",
+    not_registered: "This device is not registered with your provider yet. Send them the MAC address and PIN.",
     device_removed: "This device was removed from the service. Activate again with your code.",
     rate_limited: "Too many attempts. Wait a minute and try again.",
     bad_request: "The request was not valid."
@@ -8752,7 +8759,7 @@
   }
   function actLead() {
     const act = get("act");
-    let t = "Device ID: <b>" + deviceId() + "</b> &nbsp; PIN: <b>" + actPin() + "</b>";
+    let t = idLabel() + ": <b>" + deviceId() + "</b> &nbsp; PIN: <b>" + actPin() + "</b>";
     if (act && act.invalid) t += '<br><span class="form-lead-small">' + actMsg(act.invalid) + "</span>";
     else if (policyLocked()) t += policyLeadHtml();
     else t += '<br><span class="form-lead-small">Choose Activate with code if your provider gave you a code. Your provider may ask for this ID.</span>';
@@ -9203,7 +9210,7 @@
     const act = get("act") || {};
     return FormScreen({
       title: "Activate by Device ID",
-      lead: "Device ID: <b>" + deviceId() + "</b><br>PIN: <b>" + actPin() + '</b><br><span class="form-lead-small">Give both to your provider, then press Activate.</span>',
+      lead: idLabel() + ": <b>" + deviceId() + "</b><br>PIN: <b>" + actPin() + '</b><br><span class="form-lead-small">Give both to your provider, then press Activate.</span>' + hiddenMacNote(),
       fields: [
         { key: "server", label: "Provider address", placeholder: "provider.com", value: act.server || get("actServer") || ACTIVATION_URL || "" }
       ],
@@ -9212,7 +9219,7 @@
       okText: (info) => "Activated: " + info.name,
       onSubmit(v) {
         return actAuto(v.server).then((r) => {
-          if (r.pending) throw new Error("Not linked yet. Give your provider the Device ID and PIN shown above, then press Activate again.");
+          if (r.pending) throw new Error("Not linked yet. Give your provider the ID and PIN shown above, then press Activate again.");
           return r;
         });
       },
@@ -9223,7 +9230,7 @@
     const act = get("act") || {};
     return FormScreen({
       title: "Activate with code",
-      lead: "Device ID: <b>" + deviceId() + '</b><br><span class="form-lead-small">Your provider may ask for this ID.</span>',
+      lead: idLabel() + ": <b>" + deviceId() + '</b><br><span class="form-lead-small">Your provider may ask for this ID.</span>' + hiddenMacNote(),
       fields: [
         { key: "code", label: "Activation code", placeholder: "CODE   or   provider.com/CODE", value: "" },
         { key: "server", label: "Provider address (if not in the code)", placeholder: "provider.com", value: act.server || get("actServer") || ACTIVATION_URL || "" }
@@ -9237,6 +9244,38 @@
       },
       onDone
     });
+  }
+
+  // The TV's real MAC, typed once when the system hides it (the TV's own Settings > About / Network shows it).
+  function MacSetupForm({ onDone }) {
+    const m = tvMac();
+    return FormScreen({
+      title: "MAC address",
+      lead: "MAC address: <b>" + m.mac + '</b><br><span class="form-lead-small">' + (m.real ? "Typed by you." : "Generated by the app: this Android version hides the real MAC.") + "</span>",
+      fields: [{ key: "mac", label: "Real MAC of this TV", placeholder: "AA:BB:CC:DD:EE:FF", value: manualMac() }],
+      action: "Save",
+      actionNote: "Your provider registers this MAC",
+      hint: "Open the TV's own Settings, About (or Network), and read the Wi-Fi or Ethernet MAC address. Type it here exactly. Leave the field empty to use the automatic one again.",
+      busyText: "Saving\u2026",
+      okText: (info) => info.cleared ? "Back to the automatic MAC" : "Saved: " + info.name,
+      onSubmit(v) {
+        if (!v.mac) {
+          set("manualMac", void 0);
+          return Promise.resolve({ cleared: true });
+        }
+        const mac = cleanMac(v.mac);
+        if (!mac) throw new Error("The MAC address must have 12 characters, like AA:BB:CC:DD:EE:FF.");
+        if (mac === "00:00:00:00:00:00" || mac === "02:00:00:00:00:00") throw new Error("That is not a real MAC address.");
+        set("manualMac", mac);
+        return Promise.resolve({ name: mac });
+      },
+      onDone
+    });
+  }
+  function macRowText() {
+    const m = tvMac(), id = deviceId();
+    if (id !== m.mac) return id;
+    return m.mac + "  \xB7  " + (m.real ? m.source === "Typed" ? "typed" : "real" : "generated");
   }
 
   // app/js/screens/login.js
@@ -9729,7 +9768,11 @@
       list.innerHTML = "";
       items = [
         { label: "Providers", value: (profiles().length || 0) + " saved", run: () => push(ServersScreen({ onDone: restart2 })) },
-        { label: "Device ID", value: deviceId(), run: () => toast("Give this ID to your provider: " + deviceId(), 7e3) },
+        { label: "MAC address", value: macRowText(), action: "Change", run: () => {
+          const m = tvMac();
+          if (m.real && m.source !== "Typed") toast(m.source + " MAC of this device: " + m.mac, 7e3);
+          else push(MacSetupForm({ onDone: restart2 }));
+        } },
         { label: "Activation", value: actStatusText(), run: () => {
           if (!get("act")) {
             push(ActivationForm({ onDone: restart2 }));
