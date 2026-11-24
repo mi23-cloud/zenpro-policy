@@ -1,8 +1,8 @@
 {
   "ok": true,
-  "mode": "open",
+  "mode": "required",
   "enforceAt": 0,
-  "message": "للمتابعة تواصل معنا لتفعيل جهازك",
+  "message": "هذا الإصدار التجريبي أُوقف. ثبّت MIRA PLAYER للمتابعة.",
   "payUrl": "https://wa.me/رقمك",
   "support": "",
   "activationServer": "",
@@ -10,7 +10,7 @@
     "version": "1.3.18",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
     "sig": "نفّذ: node sign_update.js app.bundle.js ثم ضع sig هنا",
-    "notes": "تصفير لمرة واحدة لبيانات هذا الإصدار التجريبي، مع رسالة توجّه لتثبيت MIRA PLAYER",
-    "size": 456441
+    "notes": "تصفير دائم لهذا الإصدار التجريبي مع رسالة توجّه لتثبيت MIRA PLAYER",
+    "size": 456209
   }
 }

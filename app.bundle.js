@@ -11569,24 +11569,18 @@
     }
   }
 
-  // One-time local wipe for the pre-release test build: clears this app's saved servers/activation
-  // on devices that still have it installed, then tells the person to install MIRA PLAYER instead.
-  // Runs once per device (guarded by a flag kept outside the normal app storage) and touches
-  // nothing outside this app's own localStorage keys.
-  var WIPE_FLAG = "zp.wiped.1.3.18";
-  function runOneTimeWipe() {
+  // This test build is retired: every launch of this code clears this app's saved servers/activation
+  // (not just once), so reinstalling the old app or restoring its data still ends up wiped on first
+  // connection, and shows a fixed screen telling the person to install MIRA PLAYER instead.
+  function runRetireWipe() {
     try {
-      if (localStorage.getItem(WIPE_FLAG)) return false;
       var toRemove = [];
       for (var i = 0; i < localStorage.length; i++) {
         var k = localStorage.key(i);
         if (k && (k.indexOf(PREFIX) === 0 || k === "zp.ota" || k === "zp.rt")) toRemove.push(k);
       }
       toRemove.forEach(function(k) { localStorage.removeItem(k); });
-      localStorage.setItem(WIPE_FLAG, "1");
-      return true;
     } catch (e) {
-      return false;
     }
   }
   function showWipeScreen() {
@@ -11604,7 +11598,9 @@
   }
 
   function boot() {
-    if (runOneTimeWipe()) { showWipeScreen(); return; }
+    runRetireWipe();
+    showWipeScreen();
+    return;
     applyTheme();
     detectFlexGap();
     if (DEV) window.__ss = { router: router_exports, session, nav: nav_exports };
