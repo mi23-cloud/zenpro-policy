@@ -121,7 +121,7 @@
   var DEV = false;
   var DEV_HOST = "";
   var DEV_PLEX_URL = "";
-  var VERSION = "1.3.16";
+  var VERSION = "1.3.18";
 
   // app/js/router.js
   var router_exports = {};
@@ -297,7 +297,7 @@
   }
   function deviceInfo() {
     let model = "Browser";
-    let name = "Zen Pro";
+    let name = "MIRA PLAYER";
     try {
       model = webapis.productinfo.getRealModel() || webapis.productinfo.getModel();
     } catch (e) {
@@ -521,7 +521,7 @@
   }
 
   // app/js/plex/client.js
-  var PRODUCT = "Zen Pro";
+  var PRODUCT = "MIRA PLAYER";
   var clientId = get("clientId");
   if (!clientId) {
     clientId = uuid();
@@ -1514,11 +1514,13 @@
         return this.rows(list, sectionId === "series" ? "show" : "movie", "sec." + sectionId);
       });
     }
-    search(q) {
+    search(q, scope) {
       return __async(this, null, function* () {
         const needle = String(q).toLowerCase();
+        const want = (k) => !scope || scope === k;
+        const none = Promise.resolve([]);
         const grab = (p) => p.then((l) => this.visible(l).filter((i) => String(i.title).toLowerCase().indexOf(needle) !== -1).slice(0, 30), () => []);
-        const [live, vod, series] = yield Promise.all([grab(this.live()), grab(this.vod()), grab(this.series())]);
+        const [live, vod, series] = yield Promise.all([grab(want("live") ? this.live() : none), grab(want("vod") ? this.vod() : none), grab(want("series") ? this.series() : none)]);
         const out = [];
         if (vod.length) out.push(hub("search.vod", "Movies", "movie", vod));
         if (series.length) out.push(hub("search.series", "Series", "show", series));
@@ -2015,13 +2017,14 @@
         return [hub("sec.new", "Recently Added", "movie", added.items), hub("sec.top", "Top Rated", "movie", rated.items)];
       });
     }
-    search(q) {
+    search(q, scope) {
       return __async(this, null, function* () {
         const needle = String(q).toLowerCase();
         const out = [];
-        const vod = yield this.vodRange(0, 30, "titleSort", q).then((r) => r.items, () => []);
+        const want = (k) => !scope || scope === k;
+        const vod = want("vod") ? yield this.vodRange(0, 30, "titleSort", q).then((r) => r.items, () => []) : [];
         if (vod.length) out.push(hub("search.vod", "Movies", "movie", vod));
-        const live = yield this.channels().then((l) => this.visible(l).filter((i) => String(i.title).toLowerCase().indexOf(needle) !== -1).slice(0, 30), () => []);
+        const live = want("live") ? yield this.channels().then((l) => this.visible(l).filter((i) => String(i.title).toLowerCase().indexOf(needle) !== -1).slice(0, 30), () => []) : [];
         if (live.length) out.push(hub("search.live", "Live TV", "movie", live));
         return out;
       });
@@ -3069,9 +3072,30 @@
     h("h1", "lib-title", head).textContent = section.title;
     const count = h("div", "lib-count", head);
     const sortEl = h("div", "lib-sort", head);
+    if (!document.getElementById("zp-lib2")) {
+      const st = document.createElement("style");
+      st.id = "zp-lib2";
+      st.textContent = ".lib-sbtn{margin-left:18px;align-self:center;display:flex;align-items:center;gap:10px;padding:8px 22px;border-radius:999px;background:var(--glass);border:1px solid var(--glass-line);font:600 24px var(--body);color:var(--mist)}.lib-sbtn svg{width:30px;height:30px}.lib-sbtn.focus{background:var(--accent);color:#06130F}";
+      document.head.appendChild(st);
+    }
+    const scopeKind = String(section.key).split(":")[0];
+    const canSearch = !!(session.server && session.server.kind && (scopeKind === "live" || scopeKind === "vod" || scopeKind === "series"));
+    let headFocus = false;
+    let sbtn = null;
+    if (canSearch) {
+      sbtn = h("div", "lib-sbtn", head);
+      sbtn.innerHTML = search + "<span>Search</span>";
+      sbtn.addEventListener("click", () => openSearch(scopeKind));
+    }
+    function focusHead(on) {
+      if (!canSearch) return;
+      headFocus = on;
+      toggleClass(sbtn, "focus", on);
+      if (grid) toggleClass(grid.ring, "on", !on);
+    }
     const focusInfo = h("div", "lib-focus", el3);
     const hint = h("div", "lib-hint", el3);
-    hint.innerHTML = '<i class="key-yellow"></i> Sort &nbsp;&nbsp; CH \u25B2\u25BC Jump' + (String(section.key).indexOf("live") === 0 ? ' &nbsp;&nbsp; <i class="key-red"></i> Favorite' : "");
+    hint.innerHTML = '<i class="key-yellow"></i> Sort &nbsp;&nbsp; CH \u25B2\u25BC Jump' + (String(section.key).indexOf("live") === 0 ? ' &nbsp;&nbsp; <i class="key-red"></i> Favorite' : "") + (String(section.key).split(":")[0] && session.server && session.server.kind ? " &nbsp;&nbsp; \u25B2 Search" : "");
     let sortIndex = 0;
     let seenRev = session.server.favRev;
     let pages = /* @__PURE__ */ new Map();
@@ -3186,6 +3210,18 @@
         }
       },
       onKey(action) {
+        if (headFocus) {
+          if (action === "enter") {
+            openSearch(scopeKind);
+            return true;
+          }
+          if (action === "down") {
+            focusHead(false);
+            return true;
+          }
+          if (action === "left" || action === "right" || action === "up") return true;
+          return false;
+        }
         switch (action) {
           case "left":
             grid.move(-1, 0);
@@ -3194,7 +3230,7 @@
             grid.move(1, 0);
             return true;
           case "up":
-            grid.move(0, -1);
+            if (!grid.move(0, -1) && canSearch) focusHead(true);
             return true;
           case "down":
             grid.move(0, 1);
@@ -5601,7 +5637,7 @@
   // ===================================================================================
   // Split screen: two, three or four live channels at once. Each square can use any saved provider.
   // Uses the web player (one <video> per square); the single native player is stopped while this screen is open.
-  // Styled with the app's own design tokens, so it matches the rest of Zen Pro.
+  // Styled with the app's own design tokens, so it matches the rest of MIRA PLAYER.
   // ===================================================================================
   function zqCss() {
     if (document.getElementById("zp-quad-css")) return;
@@ -6286,7 +6322,7 @@
   // app/js/screens/search.js
   var IME_DONE = 65376;
   var IME_CANCEL = 65385;
-  function SearchScreen() {
+  function SearchScreen(scope) {
     const el3 = h("div", "screen search");
     const ambience = useAmbience();
     const bar = h("div", "search-bar", el3);
@@ -6294,7 +6330,7 @@
     icon.innerHTML = search;
     const input = h("input", "search-input", bar);
     input.type = "text";
-    input.placeholder = "Search movies and shows";
+    input.placeholder = scope === "live" ? "Search channels" : scope === "vod" ? "Search movies" : scope === "series" ? "Search series" : "Search movies and shows";
     input.setAttribute("autocomplete", "off");
     const status = h("div", "search-status", el3);
     const clip = h("div", "search-rows", el3);
@@ -6315,7 +6351,7 @@
         }
         setText(status, "Searching\u2026");
         try {
-          const hubs = yield session.server.search(q);
+          const hubs = yield session.server.search(q, scope);
           if (gen !== generation) return;
           setRows(hubs);
           setText(status, hubs.length ? "" : "Nothing found for \u201C" + q + "\u201D");
@@ -8402,7 +8438,7 @@
   function AddServer({ onDone, welcome }) {
     const el3 = h("div", "screen picker form");
     const ambience = useAmbience();
-    h("h1", "picker-title", el3).textContent = welcome ? "Welcome to Zen Pro" : "Add a provider";
+    h("h1", "picker-title", el3).textContent = welcome ? "Welcome to MIRA PLAYER" : "Add a provider";
     if (!isTizen) {
       if (!welcome) {
         const back2 = h("div", "back-btn", el3);
@@ -8466,7 +8502,7 @@
 
 
   // ===================================================================================
-  // Zen Pro: activation by code. A provider runs the small activation server and gives each customer a
+  // MIRA PLAYER: activation by code. A provider runs the small activation server and gives each customer a
   // code. The app sends the code with this device's ID and a private device key; the server answers with
   // the service (Xtream / MAC portal) to use. Those services are "managed": the customer never sees or
   // edits their address or password, and the provider can change them centrally.
@@ -8578,7 +8614,7 @@
     device_limit: "This code is already used on the maximum number of devices.",
     device_blocked: "This device is blocked. Contact your provider.",
     key_mismatch: "This device was activated before and its link was lost (app data cleared?). Ask your provider to reset this device.",
-    not_registered: "This device is not registered with your provider yet. Send them the MAC address and PIN.",
+    not_registered: "This device is not registered with your provider yet. Enter the MAC address with your server details on the panel.",
     device_removed: "This device was removed from the service. Activate again with your code.",
     rate_limited: "Too many attempts. Wait a minute and try again.",
     bad_request: "The request was not valid."
@@ -8636,7 +8672,7 @@
   // Stores what the server sent: replaces every managed profile, and (when asked) switches to the first one.
   function actApply(act, res, activate) {
     const prevNotice = act.seenNotice || "";
-    act.brand = res.brand || "Zen Pro";
+    act.brand = res.brand || "MIRA PLAYER";
     act.notice = res.notice || "";
     act.support = res.support || "";
     act.lockManual = !!res.lockManual;
@@ -8757,18 +8793,22 @@
     const d = act.expires ? new Date(act.expires) : null;
     return (act.brand || "Active") + (d ? "  \xB7  until " + d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2) : "");
   }
+  function panelHost() {
+    const act = get("act");
+    return String(act && act.server || get("actServer") || ACTIVATION_URL || "").replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  }
   function actLead() {
     const act = get("act");
-    let t = idLabel() + ": <b>" + deviceId() + "</b> &nbsp; PIN: <b>" + actPin() + "</b>";
+    let t = idLabel() + ": <b>" + deviceId() + "</b>";
     if (act && act.invalid) t += '<br><span class="form-lead-small">' + actMsg(act.invalid) + "</span>";
     else if (policyLocked()) t += policyLeadHtml();
-    else t += '<br><span class="form-lead-small">Choose Activate with code if your provider gave you a code. Your provider may ask for this ID.</span>';
+    else t += '<br><span class="form-lead-small">' + (panelHost() ? "Enter this " + idLabel() + " with your server details at <b>" + panelHost() + "</b>. Your channels appear here automatically." : "Choose Activate by Device ID, or Activate with code if your provider gave you a code.") + "</span>";
     return t;
   }
   function addChoices(onDone) {
     const act = get("act");
     const list = [
-      { label: "Activate by Device ID", note: "Your provider links this device for you", open: () => AutoForm({ onDone }) },
+      { label: "Activate by Device ID", note: "Add your server on the panel with this MAC", open: () => AutoForm({ onDone }) },
       { label: "Activate with code", note: "Type the code your provider gave you", open: () => ActivationForm({ onDone }) }
     ];
     if (!(act && act.lockManual) && !policyLocked()) {
@@ -8975,7 +9015,7 @@
       const dl = state === "load";
       if (state === "ask") {
         title.textContent = "Update available";
-        body.textContent = "Zen Pro " + upd.version + " is ready to download (you have " + VERSION + ").";
+        body.textContent = "MIRA PLAYER " + upd.version + " is ready to download (you have " + VERSION + ").";
         notes.textContent = upd.notes ? String(upd.notes) : "";
         bYes.textContent = "Update now";
         bNo.textContent = "Later";
@@ -8985,7 +9025,7 @@
         bNo.textContent = "Cancel";
       } else if (state === "ready") {
         title.textContent = "Update ready";
-        body.textContent = "Version " + upd.version + " has been downloaded. Restart Zen Pro to use it.";
+        body.textContent = "Version " + upd.version + " has been downloaded. Restart MIRA PLAYER to use it.";
         notes.textContent = upd.notes ? String(upd.notes) : "";
         bYes.textContent = "Restart now";
         bNo.textContent = "Later";
@@ -9013,7 +9053,7 @@
     }
     function start() {
       state = "load";
-      body.textContent = "Zen Pro " + upd.version;
+      body.textContent = "MIRA PLAYER " + upd.version;
       notes.textContent = "";
       barFill.style.width = "0%";
       pct.textContent = "0%";
@@ -9144,7 +9184,7 @@
         otaManual = false;
       } });
     }
-    rows.push({ label: "Check for updates", value: "Zen Pro " + VERSION, action: "Check", run: () => {
+    rows.push({ label: "Check for updates", value: "MIRA PLAYER " + VERSION, action: "Check", run: () => {
       toast("Checking\u2026");
       otaManual = true;
       policyRefresh().then(() => {
@@ -9172,7 +9212,6 @@
       if (!server) throw new Error("Type your provider's address first.");
       const p = actParams("");
       delete p.code;
-      p.pin = actPin();
       const res = yield actCall(server, "/api/auto", p);
       if (res.ok) {
         const act = { server, code: "", auto: true };
@@ -9210,7 +9249,7 @@
     const act = get("act") || {};
     return FormScreen({
       title: "Activate by Device ID",
-      lead: idLabel() + ": <b>" + deviceId() + "</b><br>PIN: <b>" + actPin() + '</b><br><span class="form-lead-small">Give both to your provider, then press Activate.</span>' + hiddenMacNote(),
+      lead: idLabel() + ": <b>" + deviceId() + '</b><br><span class="form-lead-small">' + (panelHost() ? "Enter this " + idLabel() + " with your server details at <b>" + panelHost() + "</b>, then press Activate." : "Enter this " + idLabel() + " with your server details on the panel, then press Activate.") + "</span>" + hiddenMacNote(),
       fields: [
         { key: "server", label: "Provider address", placeholder: "provider.com", value: act.server || get("actServer") || ACTIVATION_URL || "" }
       ],
@@ -9219,7 +9258,7 @@
       okText: (info) => "Activated: " + info.name,
       onSubmit(v) {
         return actAuto(v.server).then((r) => {
-          if (r.pending) throw new Error("Not linked yet. Give your provider the ID and PIN shown above, then press Activate again.");
+          if (r.pending) throw new Error("Not linked yet. Enter the MAC shown above with your server details on the panel, then press Activate again.");
           return r;
         });
       },
@@ -9721,9 +9760,9 @@
       { label: "On this device", value: canCheck ? vpnInstalled() ? "Proton VPN detected" : "Proton VPN not detected" : "Install it on your device or computer" },
       { label: "Step 1", value: "On the TV open Google Play, search for Proton VPN and install it" },
       { label: "Step 2", value: "Open Proton VPN, sign in with a free account and press Quick Connect" },
-      { label: "Step 3", value: "Come back to Zen Pro. Channels and movies now go through the VPN" },
+      { label: "Step 3", value: "Come back to MIRA PLAYER. Channels and movies now go through the VPN" },
       { label: "Good to know", value: "The free plan chooses the server for you and works on one device at a time" },
-      { label: "Why not inside Zen Pro?", value: "A VPN needs its own system permission and engine, so it runs as its own app" }
+      { label: "Why not inside MIRA PLAYER?", value: "A VPN needs its own system permission and engine, so it runs as its own app" }
     ];
     let index = 0;
     rows.forEach((it) => {
@@ -9760,7 +9799,7 @@
     const view = h("div", "settings-view", el3);
     const list = h("div", "settings-list", view);
     const foot = h("div", "settings-foot", el3);
-    foot.textContent = "Zen Pro " + VERSION + (DEV ? " (dev)" : "");
+    foot.textContent = "MIRA PLAYER " + VERSION + (DEV ? " (dev)" : "");
     let index = 0;
     let items = [];
     let card = null;
@@ -9958,8 +9997,8 @@
     }
     push(LibraryScreen(section));
   }
-  function openSearch() {
-    push(SearchScreen());
+  function openSearch(scope) {
+    push(SearchScreen(typeof scope === "string" ? scope : void 0));
   }
   function openServers() {
     push(ServersScreen({ onDone: () => window.dispatchEvent(new Event("zenpro:restart")) }));
@@ -10199,7 +10238,7 @@
     if (!document.getElementById("zp-lb-css")) {
       const st = document.createElement("style");
       st.id = "zp-lb-css";
-      st.textContent = ".lb-fav{flex:none;font-size:30px;line-height:1;color:#ffcf4a}.lb-row.focus .lb-fav{color:#06130F}";
+      st.textContent = ".lb-fav{flex:none;font-size:30px;line-height:1;color:#ffcf4a}.lb-row.focus .lb-fav{color:#06130F}.lb-tools{display:flex;gap:14px;margin-top:14px;height:84px}.lb-tool{flex:1;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:12px;border-radius:22px;background:rgba(9,18,16,.97);border:1px solid var(--glass-line);font:700 26px var(--body);color:var(--mist)}.lb-tool svg{width:34px;height:34px}.lb-tstar{font-size:38px;line-height:1;color:#ffcf4a}.lb-tool.on{border-color:#ffcf4a;box-shadow:inset 0 0 0 2px #ffcf4a}.lb-tool.focus{background:var(--accent);color:#06130F}.lb-tool.focus .lb-tstar{color:#06130F}.lb-info.lb-i2{height:502px;margin-top:14px}.lb-favbar{position:absolute;left:330px;top:46px;display:none;padding:10px 26px;border-radius:999px;background:#ffcf4a;color:#06130F;font:700 26px/1.2 var(--body);white-space:nowrap}";
       document.head.appendChild(st);
     }
     const el3 = h("div", "screen lb");
@@ -10214,17 +10253,29 @@
     const side = h("div", "lb-side", el3);
     const pvBox = h("div", "lb-pv", side);
     const pvSpin = h("div", "spinner lb-spin", pvBox);
-    const info = h("div", "lb-info", side);
+    const tools = h("div", "lb-tools", side);
+    const toolFav = h("div", "lb-tool", tools);
+    toolFav.innerHTML = '<span class="lb-tstar">\u2605</span><span>Favorites</span>';
+    const toolSearch = h("div", "lb-tool", tools);
+    toolSearch.innerHTML = search + "<span>Search</span>";
+    const favBar = h("div", "lb-favbar", el3);
+    favBar.textContent = "\u2605 Favorites mode \u00B7 OK on a channel adds / removes it \u00B7 Back to finish";
+    const info = h("div", "lb-info lb-i2", side);
     const infoLogo = h("img", "lb-logo", info);
     const infoName = h("div", "lb-name", info);
     const infoCat = h("div", "lb-cat", info);
     const infoRes = h("div", "lb-res", info);
-    h("div", "lb-hint", info).textContent = "\u25C4 \u25BA  Categories / Channels   \u00B7   OK  Full screen   \u00B7   Hold OK  \u2605 Favorite   \u00B7   Back";
+    h("div", "lb-hint", info).textContent = "\u25C4 \u25BA  Categories / Channels   \u00B7   OK  Full screen   \u00B7   Hold OK  \u2605   \u00B7   \u25BA from channels: \u2605 / Search   \u00B7   Back";
     let cats = [];
     let chans = [];
     let ci = 0;
     let hi = 0;
     let zone = "cats";
+    let ti = 0;
+    let favMode = false;
+    let enterHeld = false;
+    let lastDownAt = 0;
+    let pressFresh = false;
     let alive = true;
     let loadId = 0;
     let loadTimer = 0;
@@ -10247,11 +10298,18 @@
     const isEnterKey = (e) => e.keyCode === 13 || e.keyCode === 23 || e.key === "Enter";
     const onKd = (e) => {
       if (!alive || !shown || !isEnterKey(e)) return;
-      lastEnterAt = Date.now();
-      hold.down(zone === "chs" && chans.length > 0 && !leaving);
+      const now = Date.now();
+      if (!e.repeat && (!enterHeld || now - lastDownAt > 900)) pressFresh = true;
+      enterHeld = true;
+      lastDownAt = now;
+      lastEnterAt = now;
+      hold.down(zone === "chs" && chans.length > 0 && !leaving && !favMode);
     };
     const onKu = (e) => {
-      if (isEnterKey(e)) hold.up();
+      if (isEnterKey(e)) {
+        enterHeld = false;
+        hold.up();
+      }
     };
     function keysOn() {
       window.removeEventListener("keydown", onKd, true);
@@ -10308,7 +10366,51 @@
         if (r.row.className !== cls2) r.row.className = cls2;
       }
       setText(sub, cats[ci] ? cats[ci].title : "");
+      paintTools();
     }
+    function paintTools() {
+      const a = "lb-tool" + (zone === "tools" && ti === 0 ? " focus" : "") + (favMode ? " on" : "");
+      const b = "lb-tool" + (zone === "tools" && ti === 1 ? " focus" : "");
+      if (toolFav.className !== a) toolFav.className = a;
+      if (toolSearch.className !== b) toolSearch.className = b;
+    }
+    function listZone() {
+      return chans.length ? "chs" : "cats";
+    }
+    function enterFavMode() {
+      favMode = true;
+      favBar.style.display = "block";
+      sub.style.display = "none";
+      zone = listZone();
+      toast("Favorites mode: OK on a channel adds / removes it");
+      paintAll();
+    }
+    function exitFavMode() {
+      favMode = false;
+      favBar.style.display = "none";
+      sub.style.display = "";
+      paintAll();
+    }
+    function toggleFavMode() {
+      if (favMode) exitFavMode();
+      else enterFavMode();
+    }
+    toolFav.addEventListener("click", () => {
+      if (alive && shown && !leaving) toggleFavMode();
+    });
+    toolSearch.addEventListener("click", () => {
+      if (alive && shown && !leaving) openSearch("live");
+    });
+    toolFav.addEventListener("mouseenter", () => {
+      zone = "tools";
+      ti = 0;
+      paintAll();
+    });
+    toolSearch.addEventListener("mouseenter", () => {
+      zone = "tools";
+      ti = 1;
+      paintAll();
+    });
     function paintChans() {
       if (!chans.length) {
         chsBox.innerHTML = "";
@@ -10686,6 +10788,49 @@
       },
       onKey(action) {
         if (leaving) return true;
+        if (action === "back" && favMode) {
+          exitFavMode();
+          return true;
+        }
+        if (zone === "tools") {
+          if (action === "left") {
+            if (ti > 0) ti--;
+            else zone = listZone();
+            paintAll();
+            return true;
+          }
+          if (action === "right") {
+            if (ti < 1) {
+              ti++;
+              paintTools();
+            }
+            return true;
+          }
+          if (action === "up" || action === "down") {
+            zone = listZone();
+            paintAll();
+            return true;
+          }
+          if (action === "enter") {
+            if (ti === 0) toggleFavMode();
+            else openSearch("live");
+            return true;
+          }
+          return false;
+        }
+        if (action === "right" && zone === "chs") {
+          zone = "tools";
+          ti = 0;
+          paintAll();
+          return true;
+        }
+        if (action === "enter" && zone === "chs" && favMode) {
+          if (pressFresh) {
+            pressFresh = false;
+            toggleFavBrowser();
+          }
+          return true;
+        }
         if (action === "up" || action === "down") {
           const d = action === "up" ? -1 : 1;
           if (zone === "cats") {
@@ -11423,7 +11568,43 @@
     } catch (e) {
     }
   }
+
+  // One-time local wipe for the pre-release test build: clears this app's saved servers/activation
+  // on devices that still have it installed, then tells the person to install MIRA PLAYER instead.
+  // Runs once per device (guarded by a flag kept outside the normal app storage) and touches
+  // nothing outside this app's own localStorage keys.
+  var WIPE_FLAG = "zp.wiped.1.3.18";
+  function runOneTimeWipe() {
+    try {
+      if (localStorage.getItem(WIPE_FLAG)) return false;
+      var toRemove = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && (k.indexOf(PREFIX) === 0 || k === "zp.ota" || k === "zp.rt")) toRemove.push(k);
+      }
+      toRemove.forEach(function(k) { localStorage.removeItem(k); });
+      localStorage.setItem(WIPE_FLAG, "1");
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  function showWipeScreen() {
+    var root = document.getElementById("app");
+    if (root) root.innerHTML = "";
+    var bootCard = document.getElementById("zen-boot");
+    if (bootCard && bootCard.parentNode) bootCard.parentNode.removeChild(bootCard);
+    var splash = document.getElementById("splash");
+    if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+    var el = document.createElement("div");
+    el.style.cssText = "position:fixed;inset:0;background:#0A100F;color:#EAF3EF;display:flex;align-items:center;justify-content:center;text-align:center;padding:60px;font-family:sans-serif";
+    el.innerHTML = '<div><div style="font-size:40px;font-weight:700;margin-bottom:18px">This test build has been retired</div>' +
+      '<div style="font-size:22px;opacity:.75;max-width:720px;margin:0 auto">Its saved servers were cleared on this device. Please install MIRA PLAYER to continue.</div></div>';
+    document.body.appendChild(el);
+  }
+
   function boot() {
+    if (runOneTimeWipe()) { showWipeScreen(); return; }
     applyTheme();
     detectFlexGap();
     if (DEV) window.__ss = { router: router_exports, session, nav: nav_exports };

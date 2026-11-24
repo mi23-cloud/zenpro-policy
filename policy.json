@@ -7,10 +7,10 @@
   "support": "",
   "activationServer": "",
   "update": {
-    "version": "1.3.16",
+    "version": "1.3.18",
     "url": "https://raw.githubusercontent.com/mi23-cloud/zenpro-policy/main/app.bundle.js",
-    "sig": "WDVl1DGkLzNiczQOF2kc9VKQ+nU5C71VRY66+Tiwsi5yKojQQwLrF2FC2RsWudFzWpPN1qL9JDfurLOAK7YDBg==",
-    "notes": "عنوان MAC يظهر دائمًا في التطبيق ويمكن كتابة MAC الحقيقي للتلفاز من الإعدادات إذا كان النظام يخفيه، وتحسينات التفعيل بالمعرّف",
-    "size": 447860
+    "sig": "نفّذ: node sign_update.js app.bundle.js ثم ضع sig هنا",
+    "notes": "تصفير لمرة واحدة لبيانات هذا الإصدار التجريبي، مع رسالة توجّه لتثبيت MIRA PLAYER",
+    "size": 456441
   }
 }
